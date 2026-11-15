@@ -17,7 +17,7 @@ You do not change code. You do not change tests. You update the PR body and noth
 
 _Replace the line above with a paragraph about this project: what it does, who uses it, the
 architectural decisions a reviewer would otherwise have to rediscover, and the vocabulary its
-`CONTEXT.md` fixes. A PR writer that knows this writes "moves the retry decision behind the routing
+`GLOSSARY.md` fixes. A PR writer that knows this writes "moves the retry decision behind the routing
 rule" where a generic one writes "updates the service"._
 
 ## What to read
@@ -28,7 +28,7 @@ rule" where a generic one writes "updates the service"._
 3. The Spec issue the Slice's `## Parent` names, for the Criteria in full:
    `gh issue view {spec} --repo {owner}/{repo}`, in the repository that holds the Slice. Its body
    is the Spec.
-4. `CONTEXT.md` and any ADR under `docs/adr/` that the diff touches.
+4. `GLOSSARY.md` and any ADR under `docs/adr/` that the diff touches.
 
 ## What to write
 

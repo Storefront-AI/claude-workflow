@@ -26,6 +26,10 @@ Each check after the code is written now runs in one place.
   Criteria report to `/review-pr`, whose summary carries it under `### Criteria` with a new
   `Criteria:` line. A Blocking `/finalize-pr` still posts its report, since `/review-pr` does not
   run.
+- The domain glossary is `GLOSSARY.md` (and `GLOSSARY-MAP.md` in a multi-context repo), matching
+  mattpocock-skills 1.3.1, which renamed it from `CONTEXT.md`. Every skill, reference and agent
+  template reads the new name. In a repository that still has a `CONTEXT.md` or `CONTEXT-MAP.md`,
+  `git mv` it to the new name; neither plugin looks for the old one.
 - The code-reviewer agent template says the quality gates and the generic security review belong
   to other steps, and keeps only the project's own security invariants.
 

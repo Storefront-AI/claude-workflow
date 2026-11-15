@@ -14,10 +14,10 @@ Criterion grammar_. Read those sections alongside this.
 Read these before drafting, and skip any that do not exist without mentioning it:
 
 - `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`
-- `CONTEXT.md` at the repo root, or the one a `CONTEXT-MAP.md` points at
+- `GLOSSARY.md` at the repo root, or the one a `GLOSSARY-MAP.md` points at
 - the ADRs that touch the area, and the area's `CLAUDE.md`
 
-Every domain concept in the issue carries its `CONTEXT.md` term. When the issue contradicts an ADR,
+Every domain concept in the issue carries its `GLOSSARY.md` term. When the issue contradicts an ADR,
 the body says so: _Contradicts ADR-NNNN (…), worth reopening because…_
 
 An area `CLAUDE.md` often names a prerequisite for changing that area, such as a design file to
@@ -95,7 +95,7 @@ sections come first.
 
 ## References for context
 
-- CONTEXT.md: {the terms that matter here}
+- GLOSSARY.md: {the terms that matter here}
 - {repo-relative path}: {why it matters}
 
 ## Blocked by
@@ -126,7 +126,7 @@ read-only and exits 0 exactly when the Criterion holds, per `CONTRACTS.md`. A ch
 is never `[manual]`, even when it needs a credential; one that restates lint, typecheck, format or
 the test suite is not a Criterion at all.
 
-**References for context** starts with `CONTEXT.md`, then the ADRs and area `CLAUDE.md`, then the
+**References for context** starts with `GLOSSARY.md`, then the ADRs and area `CLAUDE.md`, then the
 source and test files. A path in another repository is written `{owner}/{repo}:{path}`.
 
 ## Title
