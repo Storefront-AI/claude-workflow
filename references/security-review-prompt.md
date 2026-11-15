@@ -1,6 +1,6 @@
 # Security review prompt
 
-**Version:** 2
+**Version:** 3
 
 The prompt `/review-pr` sends, verbatim, to whichever entry of the Security reviewers list runs:
 `codex`, `google` or `claude` alike, so a security review reads the same whichever vendor produced
@@ -12,8 +12,8 @@ It is Anthropic's Claude Code security review, the prompt Claude Code's built-in
 runs, taken from
 [`anthropics/claude-code-security-review`](https://github.com/anthropics/claude-code-security-review)
 at `c19afa74097b892109a6598b94297280ce7d1beb`, `.claude/commands/security-review.md`, under the MIT
-licence below. It is used as is, apart from five changes that let it run on any vendor and on part
-of a PR:
+licence below. It is used as is, apart from six changes. The first five let it run on any vendor and
+on part of a PR, and the sixth makes its findings machine-readable:
 
 1. **The diff commands are run, not expanded.** The original inlines them with Claude Code's `!`
    syntax against `origin/HEAD`. Here the reviewer runs them against `{base}...{head}`, where
@@ -28,6 +28,8 @@ of a PR:
 5. **"The complete diff" is the diff under review.** The original's "This contains all code changes
    in the PR" is false for a review of the commits after the last reviewed head, so it says what
    the range is instead.
+6. **One `FINDING:` line per finding**, before the sentinels, so `review-pr.py` builds the summary's
+   finding lists from the report rather than from a session's reading of it.
 
 Everything else, including the original's numbering, is Anthropic's text.
 
@@ -204,7 +206,11 @@ Begin your analysis now. Do this in 3 steps:
 2. Then, for each vulnerability identified in step 1, apply the "FALSE POSITIVE FILTERING" instructions to it on its own, as a fresh second look, and assign it a confidence score.
 3. Filter out any vulnerabilities with a confidence less than 8.
 
-Your final reply must contain the markdown report and nothing else, followed by these exact lines at the very end, outside any code block, counting the findings that remain by severity:
+Your final reply must contain the markdown report and nothing else, followed by one line per finding that remains, in exactly this form:
+
+FINDING: {High | Medium | Low} | {path:line} | {the vulnerability}; exploit: {the scenario}
+
+and then these exact lines at the very end, outside any code block, counting the findings that remain by severity:
 
 SECURITY_HIGH: <number>
 SECURITY_MEDIUM: <number>

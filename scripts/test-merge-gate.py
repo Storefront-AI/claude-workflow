@@ -173,6 +173,35 @@ def test_no_ready_summary_is_no_last_ready():
     return is_(gate(snap)["last_ready"]["head"], None, "last_ready.head")
 
 
+def test_rounds_count_the_drafts_since_the_newest_ready():
+    """rounds is the number of Draft summaries after the newest Ready one"""
+    snap = snapshot(
+        comments=[
+            comment(summary("Draft", OLD), "2026-11-01T08:00:00Z"),
+            comment(summary("Ready", OLD), "2026-11-01T09:00:00Z"),
+            comment(summary("Draft", OLD), "2026-11-01T09:30:00Z"),
+            comment(summary("Draft", HEAD), "2026-11-01T10:40:00Z"),
+        ]
+    )
+    return is_(gate(snap)["rounds"], 2, "rounds")
+
+
+def test_with_no_ready_summary_every_draft_is_a_round():
+    """with no Ready summary yet, every Draft summary counts toward the round cap"""
+    snap = snapshot(
+        comments=[
+            comment(summary("Draft", OLD), "2026-11-01T08:00:00Z"),
+            comment(summary("Draft", HEAD), "2026-11-01T10:40:00Z"),
+        ]
+    )
+    return is_(gate(snap)["rounds"], 2, "rounds")
+
+
+def test_a_ready_summary_last_is_no_rounds():
+    """a PR whose newest summary is Ready has no rounds running"""
+    return is_(gate(snapshot())["rounds"], 0, "rounds")
+
+
 def test_copilot_is_judged_by_the_clean_predicate():
     """an unresolved Copilot thread makes copilot not-clean, with the thread named"""
     thread = {

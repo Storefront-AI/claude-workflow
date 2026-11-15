@@ -52,6 +52,10 @@ _Avoid_: Copilot approval, Copilot review round
 The cloud Claude Code session that watches one PR once `/review-pr` has marked it ready, and answers each Copilot pass, review comment and failing check by pushing a fix or replying with a reason. Copilot is the only reviewer that sees its commits, so a merge needs a `/review-pr` summary that names the head being merged.
 _Avoid_: autofix bot, cloud reviewer, watcher
 
+**Review round**:
+One fix of what the latest `/review-pr` summary blocked on, one push, and one review of the result, run by `/review-round` in a background session of its own. The PR carries everything between rounds, so no round holds the history of the session that built the Slice. A PR gets at most three rounds after its last `Ready` summary before a person decides.
+_Avoid_: review loop, retry, fix pass
+
 **Port block**:
 The ten ports one Slice owns while its session runs, derived from its issue number so that parallel Slices never contend for one.
 _Avoid_: port range, port offset

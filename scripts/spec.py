@@ -298,7 +298,8 @@ def cmd_header(spec, repo, which, text):
     print(f"#{spec} {names[which]}: {text.strip()}")
 
 
-def cmd_list(repo, status):
+def listed(repo, status):
+    """Every Spec issue at this Status, parsed, in issue order."""
     if status not in STATUSES:
         raise NotASpec(f"{status!r} is not a Status; one of {', '.join(STATUSES)}")
     # Search narrows the candidates; the parse decides, because search ignores
@@ -310,11 +311,18 @@ def cmd_list(repo, status):
     out = []
     for hit in sorted(hits, key=lambda h: h["number"]):
         try:
-            if parse(hit["number"], hit)["status"] == status:
-                out.append({"number": hit["number"], "title": hit["title"], "state": hit["state"].upper()})
+            parsed = parse(hit["number"], hit, repo)
         except NotASpec:
             continue
-    print(json.dumps(out))
+        if parsed["status"] == status:
+            out.append(parsed)
+    return out
+
+
+def cmd_list(repo, status):
+    print(json.dumps([
+        {"number": s["spec"], "title": s["title"], "state": s["state"]} for s in listed(repo, status)
+    ]))
 
 
 def usage():

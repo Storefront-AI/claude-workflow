@@ -1,13 +1,14 @@
 ---
 name: finalize-pr
-description: Drive a Slice PR to ready-for-human-review from its worktree. Reads the linked Slice and its Spec from whichever repository the closing reference names, pushes, reads the quality gates from CI (running them locally only where no CI does), runs the command each [command] Criterion names, captures the Frames the repository declares for its [manual] Criteria, reports every Criterion as verified, weak, manual or unverified, dispatches the PR-writer agent, ticks verified Criteria on the issue, posts the review via `gh pr review --comment`, and hands a Not blocking PR to /review-pr, which reviews the code and is the only skill that marks it ready. Use when the user says "/finalize-pr", "submit PR", "ready for review", or finishes a TDD cycle on a Slice.
+description: Drive a Slice PR to ready-for-human-review from its worktree. Reads the linked Slice and its Spec from whichever repository the closing reference names, pushes, reads the quality gates from CI (running them locally only where no CI does), runs the command each [command] Criterion names, captures the Frames the repository declares for its [manual] Criteria, reports every Criterion as verified, weak, manual or unverified, dispatches the PR-writer agent, ticks verified Criteria on the issue, posts the review via `gh pr review --comment`, and hands a Not blocking PR to /review-round in a new background session, whose /review-pr reviews the code and is the only skill that marks it ready. Use when the user says "/finalize-pr", "submit PR", "ready for review", or finishes a TDD cycle on a Slice.
 ---
 
 # Finalize PR
 
 Prove what a Slice's PR claims: a report that says what was actually proven, and ticked
-Criteria on the Slice. When nothing here blocks, hand the PR to `/review-pr`, which runs the code
-review and is the only skill that marks a PR ready. This skill never does.
+Criteria on the Slice. When nothing here blocks, hand the PR to `/review-round` in a new background
+session, whose `/review-pr` runs the code review and is the only skill that marks a PR ready. This
+skill never does.
 
 ## Input
 
@@ -507,9 +508,11 @@ run rather than two that say halves of the same thing:
   ```
 
 - **Not blocking** → post nothing. Write the report, without its `##` heading line, to
-  `{scratch}/finalize-{pr_number}-{head, first 7}.md` (`{scratch}` is the session's scratchpad
-  directory, or `$TMPDIR`) and hand the path to `/review-pr` in §13. Its summary carries the report
-  under `### Criteria`, beside the code and security reviews of the same head.
+  `{workdir}/finalize-{pr_number}-{head, first 7}.md`, where `{workdir}` is what
+  `python3 <this skill dir>/../../scripts/review-pr.py workdir` prints: a directory inside the
+  checkout that git ignores, so the next session can read it and no commit can pick it up. Hand the
+  path on in §13. The `/review-pr` summary carries the report under `### Criteria`, beside the code
+  and security reviews of the same head.
 
 Body structure:
 
@@ -562,13 +565,30 @@ A Criterion with no state is a bug in §9, not a Criterion to leave out.
 The `Rule:` line is not conditional. A review that passed and a review that blocked owe the reader
 the same answer: which standard was this held to, and why that one.
 
-## 13. Hand off to `/review-pr` (conditional)
+## 13. Hand off to `/review-round` (conditional)
 
-- **Not blocking** → run `/review-pr {pr_number} --criteria {the §12 report path}`, inline in this
-  session. It runs the code and security reviews, marks the PR ready if neither blocks, hands it to
-  Copilot and an Auto-fix session, and posts one summary that carries the §12 report. Do not mark the PR ready here, and do not background the
-  hand-off: the session that owns the worktree is the one that can fix what the review finds.
-- **Blocking** → do not invoke `/review-pr`. The PR must be a draft: if an earlier `/review-pr`
+- **Not blocking** → start the first review round in a new background session in this worktree,
+  and end here:
+
+  ```bash
+  cd "$(git rev-parse --show-toplevel)" && claude --bg --dangerously-skip-permissions \
+    "/review-round {pr_number} --criteria {the §12 report path}"
+  ```
+
+  The round runs `/review-pr`, which reviews the code and its security, marks the PR ready if
+  neither blocks, hands it to Copilot and an Auto-fix session, and posts one summary that carries
+  the §12 report. When the review blocks, the round starts the next one, each a new session that
+  reads the findings from that summary, for at most three fixes.
+
+  It runs in a new session because this one has built the Slice and holds all of it. Every review
+  round run here would re-read that history, and rounds repeat. The summary comment is the hand-off,
+  so the session that fixes a finding needs nothing else from this one.
+
+  The command prints `backgrounded · {id}`; `{id}` is the eight hex characters `claude agents --json`
+  lists. Without an id the round did not start: say so, and print the command for a person to run.
+  The bypass flag is for the reason `/dispatch-slices` gives: a background session has nobody to
+  answer a prompt. Do not mark the PR ready here, and do not run `/review-pr` in this session.
+- **Blocking** → start no round. The PR must be a draft: if an earlier `/review-pr`
   marked it ready, return it with `gh pr ready {pr_number} --undo` and read
   `gh api "repos/{owner}/{repo}/pulls/{pr_number}" --jq '.draft'` back as `true`. A PR failing its
   Criteria must not stay ready, because `/merge-pr`'s draft gate is what stops it landing. If
@@ -597,7 +617,7 @@ Worktree: {path}
 Gates:    {CI on {head, first 7}: {check names} ✓ | lint ✓  typecheck ✓  format ✓  test {✓|—}}   (— = the project does not configure it)
 Base:     {up to date | behind {base}; /merge-pr will warn before merging}
 Seam:     {present ({what declares it}), `weak` blocks | absent ({the §6 reason}), `weak` does not block}
-Review:   {Not blocking, handed to /review-pr ({its outcome}) | Blocking — see above, /review-pr not run}
+Review:   {Not blocking, handed to /review-round in session {id} | Not blocking, round not started: {why} | Blocking — see above, no round started}
 
 {warnings, one per line, when they apply:}
 ⚠ {N} Criteria on one Slice, above ten. Not blocking.
@@ -606,7 +626,7 @@ Review:   {Not blocking, handed to /review-pr ({its outcome}) | Blocking — see
 ⚠ {one per §2 tag finding, as in §12}. Not changed on the tracker; fix it there.
 ⚠ The §11 edit changed more than the ticks and was reverted.
 
-Next: {what /review-pr's summary said to do next | Fix the items above and re-run /finalize-pr}
+Next: {Watch session {id}: its /review-pr summary lands on the PR | Fix the items above and re-run /finalize-pr}
 ```
 
 The session and its worktree stay alive after this skill finishes. `/merge-pr` and `/merge-stack`
@@ -617,6 +637,8 @@ tear them down once the PR lands; nothing here should remove either.
 - Steps run sequentially. Step 8 depends on Step 7's Frames. Step 13 depends on Step 10's verdict.
 - Never `--approve`; this skill writes context, the human pulls the merge trigger.
 - Never mark the PR ready. `/review-pr` is the only skill that does.
+- Never run `/review-pr` in this session. A Not blocking run hands off to `/review-round` in a new
+  background session and ends.
 - Re-running is safe: gates are stateless, and the PR body and issue body overwrite cleanly. A Blocking run posts a new review comment; a Not blocking run posts none of its own, and its report appears in the new `/review-pr` summary.
 - Don't modify source files. The PR-writer agent may modify the PR body.
 - Where CI runs the quality gates, CI is the gate: never run them again locally, and never read a check rollup for a commit other than the pushed head.

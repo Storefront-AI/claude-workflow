@@ -22,8 +22,9 @@ Squash-merge an approved PR, then clean up what built it. For a *set* of finishe
   - Without arg: `gh pr list --head {branch} --json … --limit 1`. If none, stop.
 - Validate state: `MERGED` → stop (no-op); `CLOSED` → stop; `isDraft=true` → **stop** ("Run `/review-pr {number}`; it marks the PR ready when its review does not block.").
 - **Locate the branch's worktree.** `git worktree list --porcelain` → `{wt}` for `{headRefName}`,
-  and `claude agents --json` → the session `id` and `state` whose `cwd` is `{wt}`. A slice built by
-  `/dispatch-slices` has both; a PR written by hand has neither. §5 needs them, and it is worth
+  and `claude agents --json` → the `id` and `state` of every session whose `cwd` is `{wt}`: the one
+  that built the Slice and one per review round `/review-round` ran. A slice built by
+  `/dispatch-slices` has a worktree and sessions; a PR written by hand has neither. §5 needs them, and it is worth
   knowing before the merge whether a session is still running against this branch.
 
 ## 2. Merge readiness
@@ -130,9 +131,11 @@ holds its lock for a running session. So the order is fixed — stop, remove, de
   session that misses this message has nothing left to answer, but it is still told rather than left
   holding a subscription to a closed PR.
 
-- **Stop the session** if `claude agents --json` still shows it running: `claude stop {id}`. Its
-  transcript is kept and `claude attach {id}` still opens it.
-- **Remove the session and its worktree**: `claude rm {id}`.
+- **Stop every session in the worktree** that `claude agents --json` still shows running:
+  `claude stop {id}` for each. Their transcripts are kept and `claude attach {id}` still opens them.
+- **Remove the sessions, and with them the worktree**: `claude rm {id}` for each. A review round's
+  session was started inside a worktree it did not create, so removing it leaves the worktree; the
+  session that created the worktree removes it.
 
   It keeps the worktree instead of removing it in two cases, and only one offers an override.
   Verified on 2.1.263:

@@ -24,6 +24,10 @@ Prints JSON and exits 0:
   last_ready {head, summary_url}   the newest Ready summary's head, or nulls.
              /review-pr reviews only the commits after it, because everything
              up to it was reviewed whole and passed.
+  rounds     the number of Draft summaries after the newest Ready one, or
+             every Draft summary when none is Ready. /review-round counts
+             its rounds here, so the cap survives each round being a new
+             session.
   autofix    {session}   the newest summary's Auto-fix session id, or null
   copilot    clean-predicate.py's verdict, unchanged
 
@@ -88,6 +92,15 @@ def last_ready(found):
     return {"head": None, "summary_url": None}
 
 
+def rounds(found):
+    n = 0
+    for c in reversed(found):
+        if HEADING.match(first_line(c["body"])).group(1) == "Ready":
+            break
+        n += 1
+    return n
+
+
 def autofix(found):
     # A re-run of /review-pr reuses a live session and says so, but a summary
     # written before Auto-fix existed has no line, so look back past it.
@@ -103,6 +116,7 @@ def judge(snap):
     return {
         "reviewed": reviewed(snap, found),
         "last_ready": last_ready(found),
+        "rounds": rounds(found),
         "autofix": autofix(found),
         "copilot": clean_predicate.judge(snap),
     }
