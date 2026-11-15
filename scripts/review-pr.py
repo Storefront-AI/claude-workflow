@@ -22,7 +22,8 @@ codex or agy reviewer is pointed at a prompt file there and reads within its
 workspace. /finalize-pr writes its Criteria report there too.
 
 prepare runs the pre-flight, works out the scope, the candidate Specs and the
-security chain, renders both reviewer prompts into `{workdir}/{pr}-{head7}/`,
+security chain, renders both reviewer prompts into a directory of the run's own,
+`{workdir}/{pr}-{head7}-{UTC timestamp}/`,
 and prints the run's manifest as JSON. The manifest names the prompt files and
 the report files the session writes each reviewer's reply to.
 
@@ -152,6 +153,25 @@ def workdir():
     path = toplevel() / WORKDIR
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def new_run_dir(pr, head):
+    """A new, empty directory for one prepare run.
+
+    Each run gets its own, so two runs on one PR and head never share a
+    manifest, a prompt or a report. `mkdir` fails on a name already taken,
+    which is what makes the name unique within a second.
+    """
+    base = f"{pr}-{head[:7]}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    parent = workdir()
+    n = 1
+    while True:
+        path = parent / (base if n == 1 else f"{base}-{n}")
+        try:
+            path.mkdir()
+            return path
+        except FileExistsError:
+            n += 1
 
 
 # ---------------------------------------------------------------- reports
@@ -655,13 +675,10 @@ def prepare(view, repo, default, criteria, full):
             )
             agents.append({"name": meta.get("name"), "description": meta.get("description"), "file": f.name})
 
-    run_dir = workdir() / f"{pr}-{head[:7]}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = new_run_dir(pr, head)
     files = {k: run_dir / f"{k}.md" for k in ("code-prompt", "security-prompt", "code-report", "security-report")}
     files["code-prompt"].write_text(code_prompt(pr, head, scope["since"], specs, tracker), encoding="utf-8")
     files["security-prompt"].write_text(security_prompt(pr, security_base, head), encoding="utf-8")
-    for k in ("code-report", "security-report"):
-        files[k].unlink(missing_ok=True)
     criteria_file = None
     if criteria:
         source = Path(criteria)

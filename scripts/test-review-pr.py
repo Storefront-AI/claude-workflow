@@ -13,6 +13,7 @@ on a live pull request.
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -384,6 +385,29 @@ def test_the_workdir_is_ignored_by_git_and_excluded_once():
         status.strip() == "" and exclude.count(rp.EXCLUDE) == 1 and first == repo / rp.WORKDIR,
         f"status={status!r} excludes={exclude.count(rp.EXCLUDE)} dir={first}",
     )
+
+
+def test_every_prepare_run_gets_a_run_directory_of_its_own():
+    """two runs on one PR and head get different run directories, so neither overwrites the other's files"""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp).resolve()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        env_cwd = Path.cwd()
+        try:
+            os.chdir(repo)
+            first = rp.new_run_dir(PR, HEAD)
+            (first / "manifest.json").write_text("first")
+            second = rp.new_run_dir(PR, HEAD)
+            kept = (first / "manifest.json").read_text()
+            parent = rp.workdir()
+        finally:
+            os.chdir(env_cwd)
+        named = all(re.fullmatch(rf"{PR}-{HEAD[:7]}-\d{{8}}T\d{{6}}Z(-\d+)?", d.name) for d in (first, second))
+        return check(
+            first != second and kept == "first" and named and first.parent == parent == second.parent
+            and not list(second.iterdir()),
+            f"first={first.name} second={second.name} kept={kept!r}",
+        )
 
 
 # ---------------------------------------------------------------- finish, against a fake GitHub

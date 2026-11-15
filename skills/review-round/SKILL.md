@@ -28,6 +28,14 @@ Run from the PR's worktree. `{top}` = `git rev-parse --show-toplevel`.
 
 ## 1. Where the PR stands
 
+**One round per worktree.** Before anything else, read `claude agents --json`. When another session
+(any entry but this session's own) has `state` `working` and `{top}` as its `cwd`, a round or a build
+is already using this checkout, and two sessions that edit and commit in one checkout push over each
+other. The round that started this one ends as soon as it has launched it, so when a `working`
+session shows, wait 60 seconds and read the list once more. Still there → **stop**: fix nothing,
+review nothing, start no round, and report that session's `id`. No lock file is involved: the
+session list is the only record.
+
 ```bash
 python3 <this skill dir>/../../scripts/merge-gate.py --pr {pr_number}
 ```
@@ -149,6 +157,7 @@ Next:    {session {id} runs round {n+1} | Copilot and Auto-fix have it | a perso
 - At most three fix rounds since the last `Ready`. Past that, a person decides.
 - Never fix a finding you believe is wrong. Stop and say so.
 - Never force-push, rebase, or merge the base in. Never mark the PR ready: `/review-pr` does that.
+- One round per worktree. Another `working` session in this checkout is a stop.
 - Hold the Auto-fix session before pushing a fix.
 - The background launch is the only one in this skill, and it is the one place it passes
   `--dangerously-skip-permissions`.
