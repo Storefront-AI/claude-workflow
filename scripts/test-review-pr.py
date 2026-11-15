@@ -689,9 +689,28 @@ def test_a_posted_run_prunes_this_prs_older_run_directories():
         other = run_names("20261101T000000Z", pr=PR + 1)
         for name in older + other:
             (parent / name).mkdir()
+            (parent / name / "summary.md").write_text("done")
         code, err = finish(FakeGitHub(), parent=parent)
         left = sorted(p.name for p in parent.iterdir())
     want = sorted(older[-(rp.KEEP_RUNS - 1):] + other + [RUN_NAME])
+    return check(code == 0 and left == want, f"exit {code}, left {left}, want {want}, {err}")
+
+
+def test_pruning_leaves_a_run_that_may_still_be_going():
+    """an older run with no summary yet keeps its prompts, reports and manifest; an abandoned one goes"""
+    import time as _time
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        stamp = lambda ago: _time.strftime("%Y%m%dT%H%M%SZ", _time.gmtime(_time.time() - ago))
+        abandoned, going, done = run_names(stamp(rp.ABANDONED_AFTER + 3600), stamp(3600), stamp(1800))
+        newer = run_names(stamp(60), stamp(30), stamp(10))
+        for name in [abandoned, going, done] + newer:
+            (parent / name).mkdir()
+        (parent / going / "manifest.json").write_text("{}")
+        (parent / done / "summary.md").write_text("done")
+        code, err = finish(FakeGitHub(), parent=parent)
+        left = sorted(p.name for p in parent.iterdir())
+    want = sorted([going, RUN_NAME] + newer)
     return check(code == 0 and left == want, f"exit {code}, left {left}, want {want}, {err}")
 
 

@@ -178,6 +178,7 @@ def new_run_dir(pr, head):
 
 
 KEEP_RUNS = 3
+ABANDONED_AFTER = 24 * 60 * 60  # seconds; no review run lasts a day
 RUN_DIR = re.compile(r"(?P<pr>\d+)-[0-9a-f]{7}-(?P<stamp>\d{8}T\d{6}Z)(?:-(?P<n>\d+))?")
 
 
@@ -186,7 +187,10 @@ def prune_runs(run_dir):
 
     Called once a run has posted its summary, so a run that stopped keeps the
     evidence of the runs before it. A directory `new_run_dir` did not name is
-    never touched.
+    never touched. Nor is a run that may still be going: one with no
+    `summary.md`, which `finish` writes after it has read every report, is
+    left alone until it is ABANDONED_AFTER old, because its reviewers may
+    still be reading its prompts and its `finish` still needs its manifest.
     """
     run_dir = Path(run_dir)
     me = RUN_DIR.fullmatch(run_dir.name)
@@ -199,8 +203,9 @@ def prune_runs(run_dir):
             runs.append(((m["stamp"], int(m["n"] or 1)), p))
     runs.sort()
     keep = {p for _, p in runs[-KEEP_RUNS:]} | {run_dir}
-    for _, p in runs:
-        if p not in keep:
+    abandoned = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() - ABANDONED_AFTER))
+    for (stamp, _), p in runs:
+        if p not in keep and ((p / "summary.md").is_file() or stamp < abandoned):
             shutil.rmtree(p, ignore_errors=True)
 
 

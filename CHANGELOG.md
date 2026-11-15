@@ -34,7 +34,8 @@ session of its own.
 - `review-pr.py` leaves a PR ready when a `Ready` summary may have been posted but could not be
   read back, so a draft never sits under a `Ready` summary that reads as reviewed. A failed Copilot
   snapshot no longer credits an older request to the ruleset. Each run that posts deletes this PR's
-  run directories older than the newest three (#75).
+  run directories older than the newest three, leaving any run with no summary yet until it is a
+  day old, since its reviewers may still be working in it (#75).
 
 - `/finalize-pr` pushes first and reads the quality gates from CI on the pushed head. It runs lint,
   typecheck, format and tests locally only in a repository with no CI that runs them. It used to
