@@ -99,9 +99,12 @@ class Stop(Exception):
     must not report that nothing was posted.
     """
 
-    def __init__(self, message, posted="nothing was posted"):
+    def __init__(self, message, posted="nothing was posted", maybe_posted=False):
         super().__init__(message)
         self.posted = posted
+        self.maybe_posted = maybe_posted
+        # Set by `finish` when the comment that may be up is a Ready summary.
+        self.keep_ready = False
 
 
 class Unread(Exception):
@@ -172,6 +175,33 @@ def new_run_dir(pr, head):
             return path
         except FileExistsError:
             n += 1
+
+
+KEEP_RUNS = 3
+RUN_DIR = re.compile(r"(?P<pr>\d+)-[0-9a-f]{7}-(?P<stamp>\d{8}T\d{6}Z)(?:-(?P<n>\d+))?")
+
+
+def prune_runs(run_dir):
+    """Delete this PR's run directories older than the newest KEEP_RUNS.
+
+    Called once a run has posted its summary, so a run that stopped keeps the
+    evidence of the runs before it. A directory `new_run_dir` did not name is
+    never touched.
+    """
+    run_dir = Path(run_dir)
+    me = RUN_DIR.fullmatch(run_dir.name)
+    if not me:
+        return
+    runs = []
+    for p in run_dir.parent.iterdir():
+        m = RUN_DIR.fullmatch(p.name)
+        if p.is_dir() and m and m["pr"] == me["pr"]:
+            runs.append(((m["stamp"], int(m["n"] or 1)), p))
+    runs.sort()
+    keep = {p for _, p in runs[-KEEP_RUNS:]} | {run_dir}
+    for _, p in runs:
+        if p not in keep:
+            shutil.rmtree(p, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- reports
@@ -462,6 +492,9 @@ def copilot_requests(repo, pr):
     }
 
 
+UNREAD = object()
+
+
 def new_since(repo, pr, before):
     return bool(set(copilot_requests(repo, pr)) - set(before))
 
@@ -482,7 +515,9 @@ def hand_to_copilot(repo, pr, base_ref, before_ready, last_summary_at):
     before_ready is the request snapshot taken just before this run marked the
     PR ready, or None when it was ready already. Then a ruleset that reviews on
     push made its request after the push, which is after the last summary, and
-    both timestamps are GitHub's.
+    both timestamps are GitHub's. UNREAD means the snapshot failed: with no
+    baseline, every earlier request would look new, so nothing is credited to
+    the ruleset and the explicit request, which reads its own baseline, runs.
     """
     try:
         rules = gh_json("api", f"repos/{repo}/rules/branches/{base_ref}")
@@ -494,7 +529,7 @@ def hand_to_copilot(repo, pr, base_ref, before_ready, last_summary_at):
         "; later passes: on push" if on_push
         else "; later passes: none, the repository does not review on push"
     )
-    if auto and before_ready is not None and wait_for(lambda: new_since(repo, pr, before_ready), 60):
+    if auto and isinstance(before_ready, dict) and wait_for(lambda: new_since(repo, pr, before_ready), 60):
         return True, None, "requested by the repository's ruleset" + later, on_push
     if auto and before_ready is None and last_summary_at and any(
         at >= last_summary_at for at in copilot_requests(repo, pr).values()
@@ -563,11 +598,11 @@ def post(repo, pr, body):
     unsure = f"a comment may have been posted ({url or 'no URL printed'}); check the PR's comments"
     m = re.search(r"#issuecomment-(\d+)", url)
     if not m:
-        raise Stop("`gh pr comment` printed no comment URL", posted=unsure)
+        raise Stop("`gh pr comment` printed no comment URL", posted=unsure, maybe_posted=True)
     try:
         back = gh_json("api", f"repos/{repo}/issues/comments/{m.group(1)}")["body"]
     except Exception as exc:
-        raise Stop(f"the posted summary could not be read back: {exc}", posted=unsure)
+        raise Stop(f"the posted summary could not be read back: {exc}", posted=unsure, maybe_posted=True)
     if not back.lstrip().startswith("## /review-pr"):
         raise Stop(
             "the posted comment does not read back as a /review-pr summary",
@@ -750,7 +785,7 @@ def cmd_finish(run_dir, reviewer, security_entry, skipped):
         )
     else:
         if was_draft:
-            before_ready = best_effort(lambda: copilot_requests(repo, pr), lambda why: {})
+            before_ready = best_effort(lambda: copilot_requests(repo, pr), lambda why: UNREAD)
             run("gh", "pr", "ready", str(pr), "--repo", repo, check=False)
         if is_draft(repo, pr):
             outcome, outcome_line = "Draft", "Left as a draft: `gh pr ready` did not take."
@@ -789,7 +824,16 @@ def cmd_finish(run_dir, reviewer, security_entry, skipped):
         "code_report": texts["code"], "security_report": texts["security"],
     })
     (Path(run_dir) / "summary.md").write_text(body, encoding="utf-8")
-    url = post(repo, pr, body)
+    try:
+        url = post(repo, pr, body)
+    except Stop as exc:
+        # A Ready summary on a draft PR reads as fresh to merge-gate.py, so
+        # /review-round would end there and leave the PR stranded. A ready PR
+        # with no summary reads as stale instead, which the next round reviews
+        # and /merge-pr refuses.
+        exc.keep_ready = exc.maybe_posted and outcome == "Ready"
+        raise
+    best_effort(lambda: prune_runs(run_dir), lambda why: None)
 
     drift = len(code["drift"])
     lines = [
@@ -879,8 +923,11 @@ def main(argv):
                 manifest = json.loads((Path(a.run) / "manifest.json").read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 manifest = None
-        error = to_draft(manifest["repo"], manifest["pr"]) if manifest else "the PR is unknown"
         print(f"✘ {exc}", file=sys.stderr)
+        if exc.keep_ready:
+            print(f"  {exc.posted}; the PR stays ready, because a Ready summary may be on it", file=sys.stderr)
+            return 1
+        error = to_draft(manifest["repo"], manifest["pr"]) if manifest else "the PR is unknown"
         print(
             f"  {exc.posted}; " + (f"the PR could not be returned to draft: {error}" if error
                                    else "the PR is a draft"),

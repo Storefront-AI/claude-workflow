@@ -20,7 +20,8 @@ or by the round before it, and does the same thing.
 
 ## Input
 
-`$ARGUMENTS`: a PR number, and `--criteria {path}` when `/finalize-pr` starts the first round. Pass
+`$ARGUMENTS`: a PR number; `--launched-by {sessionId}` when `/finalize-pr` or an earlier round
+started this one; and `--criteria {path}` when `/finalize-pr` starts the first round. Pass
 `--criteria` through to `/review-pr` only while the head is still the commit the report proves (§3);
 no later round has one.
 
@@ -34,15 +35,16 @@ whose `sessionId` is not `$CLAUDE_CODE_SESSION_ID`.
 
 - This session's own entry is the one whose `sessionId` equals `$CLAUDE_CODE_SESSION_ID`. Leave it
   out, or the round finds itself and stops.
+- Leave out the entry whose `sessionId` is the `--launched-by` value. That session started this
+  one and is still `busy` while it writes its report, but its last edit and push came before the
+  launch, so it is no rival.
 - Read `status`, never `state`. A background session that has finished its turn still lists
   `state: working` beside `status: idle`, and a session a person runs in a terminal has `status` and
   no `state` at all. `busy` is the only value that says a session is doing something now.
 
-Two sessions that edit and commit in one checkout push over each other. The round that started this
-one is `busy` only until it has written its report, so when a `busy` session shows, wait 60 seconds
-and read the list once more. Still `busy` → **stop**: fix nothing, review nothing, start no round,
-and report that session's `id` (its `sessionId` when it has no `id`). No lock file is involved: the
-session list is the only record.
+Two sessions that edit and commit in one checkout push over each other. Any other `busy` session →
+**stop**: fix nothing, review nothing, start no round, and report that session's `id` (its
+`sessionId` when it has no `id`). No lock file is involved: the session list is the only record.
 
 ```bash
 python3 <this skill dir>/../../scripts/merge-gate.py --pr {pr_number}
@@ -74,7 +76,10 @@ claude -p "PR #{pr_number} is back to draft. Push nothing more until /review-pr 
 
 Read the reply before touching anything:
 
-- `"ok": true` → the session has the message and holds. Go on.
+- `"ok": true` → the session has the message. Go on. The message alone does not stop it pushing
+  (on #74 one answered `ok: true` and pushed anyway); its prompt does, by forbidding any push while
+  the PR is a draft, which it is now. A session started before that prompt's version 2 lacks the
+  rule, so a push from it shows up as a head §3 did not expect.
 - `"ok": false` → the session is archived or gone, and cannot push. Go on.
 - Anything else (a timeout, a non-zero exit with no JSON, a reply without `ok`) → **stop** before
   fixing or pushing anything: leave the PR a draft, start no round, and report the session and the
@@ -133,8 +138,11 @@ Only after §3 posted a summary. Ask the gate again: `merge-gate.py --pr {pr_num
 - `blocked` with `.rounds` at **3** or below → start the next round and end this session:
 
   ```bash
-  cd {top} && claude --bg --dangerously-skip-permissions "/review-round {pr_number}"
+  cd {top} && claude --bg --dangerously-skip-permissions \
+    "/review-round {pr_number} --launched-by $CLAUDE_CODE_SESSION_ID"
   ```
+
+  The shell fills in this session's id, which the next round leaves out of its §1 check.
 
   It prints `backgrounded · {id}`, the eight hex characters `claude agents --json` lists as `id`.
   Without one, the round did not start: say so, with the command's output, so a person can run it.
@@ -165,7 +173,8 @@ Next:    {session {id} runs round {n+1} | Copilot and Auto-fix have it | a perso
 - At most three fix rounds since the last `Ready`. Past that, a person decides.
 - Never fix a finding you believe is wrong. Stop and say so.
 - Never force-push, rebase, or merge the base in. Never mark the PR ready: `/review-pr` does that.
-- One round per worktree. Another `busy` session in this checkout is a stop.
+- One round per worktree. A `busy` session in this checkout other than this one and its
+  `--launched-by` launcher is a stop.
 - Hold the Auto-fix session before pushing a fix.
 - The background launch is the only one in this skill, and it is the one place it passes
   `--dangerously-skip-permissions`.
