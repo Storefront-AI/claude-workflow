@@ -26,7 +26,7 @@ the ADRs closed._
 2. The Slice issue: its `## Acceptance criteria`, which cite the Criteria this Slice owns.
 3. The Spec issue the Slice's `## Parent` names: `gh issue view {spec} --repo {owner}/{repo}`, in
    the repository that holds the Slice. Its body is the Spec.
-4. `CONTEXT.md`, and every ADR under `docs/adr/` that touches the area the diff changes.
+4. `GLOSSARY.md`, and every ADR under `docs/adr/` that touches the area the diff changes.
 5. The code around the diff, not only the diff. A change is wrong or right in its context.
 
 ## What to look for
@@ -36,7 +36,7 @@ the ADRs closed._
   differently from what the Criterion says.
 - **Boundaries and ADRs.** A change that contradicts a recorded decision. Name the ADR. If the
   decision deserves reopening, say that instead of quietly letting the change through.
-- **Vocabulary.** A name that drifts from `CONTEXT.md`, including onto a term its _Avoid_ list
+- **Vocabulary.** A name that drifts from `GLOSSARY.md`, including onto a term its _Avoid_ list
   names.
 - **Tests.** Tests that assert on copy, labels, CSS classes or DOM layout instead of behaviour; a
   test weakened to pass; a bug fixed with no failing test written first.

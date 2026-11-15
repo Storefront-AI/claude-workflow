@@ -157,7 +157,7 @@ What `spec.py` exits with decides the rest:
 
 ## 3. Bootstrap context
 
-Read each file listed in `## References for context` (e.g., `CONTEXT.md`, area `CLAUDE.md`, ADRs). Skip silently when a path doesn't exist.
+Read each file listed in `## References for context` (e.g., `GLOSSARY.md`, area `CLAUDE.md`, ADRs). Skip silently when a path doesn't exist.
 
 ## 4. Push, and the merge state
 
@@ -230,7 +230,7 @@ are not interchangeable there.
 
 ### Is there a test Seam?
 
-`CONTEXT.md` defines a **Seam** as the public boundary a test observes behaviour at. Asked of a whole
+`GLOSSARY.md` defines a **Seam** as the public boundary a test observes behaviour at. Asked of a whole
 repository rather than of one behaviour, it becomes: can this skill run a test here at all? Record
 the answer as **present** or **absent**, with the reason. §10 reads it to decide what a `weak`
 Criterion costs.

@@ -70,7 +70,7 @@ the repo is offered both plugins when they first trust the workspace:
 ## The loop
 
 ```
-/grill-with-docs     →  reach shared understanding, update CONTEXT.md and ADRs inline   (Pocock)
+/grill-with-docs     →  reach shared understanding, update GLOSSARY.md and ADRs inline   (Pocock)
 /to-spec             →  publish the spec as a tracker issue                             (Pocock)
 /critique-spec       →  add Given/When/Then Criteria, have another vendor's model doubt them, settle both
 /to-tickets          →  break the spec into independently-grabbable slice issues        (Pocock)

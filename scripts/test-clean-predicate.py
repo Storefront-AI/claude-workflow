@@ -139,10 +139,10 @@ def c11_runs_in_validate():
 
 
 def c12_context_defines_copilot_pass():
-    context = (REPO / "CONTEXT.md").read_text()
+    context = (REPO / "GLOSSARY.md").read_text()
     m = re.search(r"^\*\*Copilot pass\*\*:\n(.+)$", context, re.M)
     if not m or not m.group(1).strip():
-        return False, "CONTEXT.md has no **Copilot pass** definition"
+        return False, "GLOSSARY.md has no **Copilot pass** definition"
     return True, ""
 
 
@@ -180,7 +180,7 @@ CASES = [
     ("#52 C9 a resolved thread from an earlier pass beside a clean latest pass is clean", c9_resolved_earlier_thread),
     ("#52 C10 Copilot and copilot-pull-request-reviewer[bot] both count as Copilot", c10_both_logins_are_copilot),
     ("#52 C11 the validate script runs these cases", c11_runs_in_validate),
-    ("#52 C12 CONTEXT.md defines Copilot pass", c12_context_defines_copilot_pass),
+    ("#52 C12 GLOSSARY.md defines Copilot pass", c12_context_defines_copilot_pass),
     ("a request a Copilot pass already answered is not pending", answered_request_is_not_pending),
     ("timestamps with offsets and fractions compare as instants", timestamps_compare_as_instants),
     ("a snapshot missing a field exits 2", incomplete_snapshot_exits_2),

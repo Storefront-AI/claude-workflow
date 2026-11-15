@@ -45,7 +45,7 @@ Parse the body for the sections `CONTRACTS.md` describes:
 - `## Acceptance criteria` for the checkboxes citing the Criteria this Slice owns
 - `## References for context` for repo-relative paths to read first
 
-Read every path under `## References for context` that exists, plus `CONTEXT.md`, before writing a
+Read every path under `## References for context` that exists, plus `GLOSSARY.md`, before writing a
 test name. Test names are read by people and matched by `/finalize-pr`; they use the project's
 words, not synonyms invented at the keyboard.
 

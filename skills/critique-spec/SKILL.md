@@ -231,7 +231,7 @@ the two SPEC lines below. It is the whole Spec; do not look for it on disk.
 
 Then read, in this order:
 
-- CONTEXT.md — this project's glossary; its Avoid lists govern what things may be called
+- GLOSSARY.md — this project's glossary; its Avoid lists govern what things may be called
 - {each ADR under docs/adr/ that touches this Spec's area, by path}
 
 Report doubts about the Spec under these seven headings. Under each, either list findings
@@ -242,8 +242,8 @@ matters. Quote the Spec text you are doubting.
 2. Missing edge cases — behaviour the Spec does not say anything about.
 3. Decisions an agent would make silently — choices the Spec leaves open that an
    implementer must settle, and will settle differently in each parallel session.
-4. Vocabulary conflicting with the glossary — terms used that CONTEXT.md lists under
-   Avoid, or terms used in a sense CONTEXT.md does not define.
+4. Vocabulary conflicting with the glossary — terms used that GLOSSARY.md lists under
+   Avoid, or terms used in a sense GLOSSARY.md does not define.
 5. Criteria that are not binary — any Criterion whose Then a reasonable reader could mark
    either way. Quote the Then clause.
 6. Scope missing from Out of Scope — work a reader would assume is included that the

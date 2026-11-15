@@ -27,7 +27,7 @@ one that does not invents a fourth way to build a user._
 2. The Spec issue the Slice's `## Parent` names, for each cited Criterion's full Given/When/Then:
    `gh issue view {spec} --repo {owner}/{repo}`, in the repository that holds the Slice. Its body
    is the Spec.
-3. `CONTEXT.md`, so the test names use the project's words.
+3. `GLOSSARY.md`, so the test names use the project's words.
 4. The existing tests nearest the Seam. Match their shape.
 
 ## How to write them

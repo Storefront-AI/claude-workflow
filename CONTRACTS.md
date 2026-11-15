@@ -10,11 +10,11 @@ reading a single skill first.
 It describes shapes, not skill behaviour. When you want to know what `/critique-spec` does, read
 `/critique-spec`. When you want to know what it leaves on disk, read this.
 
-Vocabulary is `CONTEXT.md`'s: Spec, Spec issue, Slice, Criterion, Seam, Critique, Verification.
+Vocabulary is `GLOSSARY.md`'s: Spec, Spec issue, Slice, Criterion, Seam, Critique, Verification.
 
 ## On this vocabulary
 
-`CONTEXT.md` gives each term an _Avoid_ list. Those lists govern the words this document and the
+`GLOSSARY.md` gives each term an _Avoid_ list. Those lists govern the words this document and the
 skills choose when naming a concept. They do not reach inside a literal string that already exists
 in the world. Four such strings appear below and are deliberate:
 
@@ -29,7 +29,7 @@ in the world. Four such strings appear below and are deliberate:
 - **task list** is GitHub's own name for a `- [ ] #NN` block. It appears only where a Spec issue
   anchored before sub-issues were the roster still carries one.
 
-A term this document introduces that is not in `CONTEXT.md` and not one of the above is a bug in one
+A term this document introduces that is not in `GLOSSARY.md` and not one of the above is a bug in one
 of the two files.
 
 ## The Spec
@@ -146,7 +146,7 @@ behaviour and name Seams.
 The one exception is a runnable command: the Verification's `Command:` line, and the `Command:` line
 of a `[command]` Criterion. A path inside a command does not rot silently. The first run after the
 refactor fails, and says which path. `/review-pr` finds the Specs a diff touches by matching Spec
-titles and `CONTEXT.md` terms against changed paths, which is why it needs no paths written down.
+titles and `GLOSSARY.md` terms against changed paths, which is why it needs no paths written down.
 
 ### Keeping an implemented Spec true
 
@@ -265,7 +265,7 @@ be relied on to carry is the one a person is asked for.
 
 ## References for context
 
-- CONTEXT.md
+- GLOSSARY.md
 - docs/adr/0001-specs-live-in-the-repo.md
 
 ## Blocked by

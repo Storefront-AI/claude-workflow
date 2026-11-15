@@ -157,7 +157,7 @@ no Slice.
    stop is never a pass (§1). A list that failed to load, read as no Specs, would let every drift
    through unasked.
 2. Take the changed paths: `git diff --name-only {range}`.
-3. Keep a Spec when a word of its title, or a `CONTEXT.md` **Language** term its Criteria use,
+3. Keep a Spec when a word of its title, or a `GLOSSARY.md` **Language** term its Criteria use,
    appears in a changed path. Read each candidate's Criteria with
    `python3 <this skill dir>/../../scripts/spec.py read {spec} --repo {tracker}`; exit 2 there
    stops the run as in step 1. Match whole words, not substrings: `cart` matches `src/cart/summary.ts`

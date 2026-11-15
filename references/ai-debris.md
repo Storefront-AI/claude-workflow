@@ -46,5 +46,5 @@ Patterns that signal an AI agent overshot the task or worked around the absence 
 
 ## Modified context files without justification
 - **Look for:** files listed under `## References for context` in the issue body that the diff modifies. These are usually read-only inputs.
-- **Why:** Context files (`CONTEXT.md`, area `CLAUDE.md`, ADRs) define the language of the area. Modifying them as a side effect of a slice often means the slice's premise changed without the issue being updated.
+- **Why:** Context files (`GLOSSARY.md`, area `CLAUDE.md`, ADRs) define the language of the area. Modifying them as a side effect of a slice often means the slice's premise changed without the issue being updated.
 - **Severity:** Blocking — either update the issue to reflect the new contract or revert the context change.

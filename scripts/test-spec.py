@@ -466,7 +466,7 @@ LOCATES_A_SPEC_FILE = re.compile(r"docs/specs/(\{|\*)")
 def test_nothing_shipped_names_a_skill_that_is_gone():
     """no skill, reference, script or contract sends anyone to /anchor-spec"""
     shipped = [*ROOT.glob("skills/**/*.md"), *ROOT.glob("references/*.md"), *ROOT.glob("scripts/*.py"),
-               ROOT / "CONTRACTS.md", ROOT / "README.md", ROOT / "CONTEXT.md"]
+               ROOT / "CONTRACTS.md", ROOT / "README.md", ROOT / "GLOSSARY.md"]
     found = [str(p.relative_to(ROOT)) for p in shipped
              if p.name != "test-spec.py" and "anchor-spec" in p.read_text()]
     return not found and not (ROOT / "skills" / "anchor-spec").exists(), f"still name it: {', '.join(found)}"
