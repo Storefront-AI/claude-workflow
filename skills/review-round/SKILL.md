@@ -21,8 +21,8 @@ or by the round before it, and does the same thing.
 ## Input
 
 `$ARGUMENTS`: a PR number, and `--criteria {path}` when `/finalize-pr` starts the first round. Pass
-`--criteria` through to `/review-pr` unless this round pushes a fix first (§3); no later round has
-one.
+`--criteria` through to `/review-pr` only while the head is still the commit the report proves (§3);
+no later round has one.
 
 Run from the PR's worktree. `{top}` = `git rev-parse --show-toplevel`.
 
@@ -56,7 +56,13 @@ it may still push. Two fixers on one branch push over each other:
 claude -p "PR #{pr_number} is back to draft. Push nothing more until /review-pr hands it back." --cloud {session} --output-format json
 ```
 
-`"ok": false` (archived or gone) needs nothing more.
+Read the reply before touching anything:
+
+- `"ok": true` → the session has the message and holds. Go on.
+- `"ok": false` → the session is archived or gone, and cannot push. Go on.
+- Anything else (a timeout, a non-zero exit with no JSON, a reply without `ok`) → **stop** before
+  fixing or pushing anything: leave the PR a draft, start no round, and report the session and the
+  command's output. An unanswered hold does not show that Auto-fix has stopped pushing.
 
 **Read the findings, and only the findings.** The comment's `### Blocking findings` section names
 each one and where it is:
@@ -91,13 +97,21 @@ merge the base in.
 Run `/review-pr {pr_number}` through the Skill tool, here, in this session. It reviews the head,
 posts its summary, and marks the PR ready or leaves it a draft.
 
-Add `--criteria {path}` only when this round was given one and pushed nothing in §2. The report
-proves the head `/finalize-pr` ran on. After a fix push the head is a new commit, and the summary
-would call it proven on a head it was never run against, so leave it out.
+Add `--criteria {path}` only when this round was given one and the head is still the commit the
+report proves. `/finalize-pr` names the report `finalize-{pr_number}-{head, first 7}.md`: forward it
+when `git rev-parse HEAD` starts with those seven characters, and leave it out otherwise. The head
+moves when §2 pushed a fix, and when §1 fast-forwarded onto a push made after `/finalize-pr` ran;
+either way the summary would call the Criteria proven on a head they were never run against.
+
+`/review-pr` ends by printing its local summary, whose `Summary:` line is the URL of the comment it
+posted. When it stops instead (a `✘` line, no `Summary:` line), no review of this head was posted.
+**Stop** the round: start no next round, and report the `✘` line. Do not go to §4, which would read
+the summary an earlier round left and take it for this one's.
 
 ## 4. The next round
 
-Ask the gate again: `merge-gate.py --pr {pr_number}`.
+Only after §3 posted a summary. Ask the gate again: `merge-gate.py --pr {pr_number}`.
+`.reviewed.summary_url` must be the URL §3 printed; when it is not, **stop** as §3 says.
 
 - `fresh` → `Ready`. Copilot and Auto-fix take it from here. Report and end.
 - `blocked` with `.rounds` at **3** or below → start the next round and end this session:
