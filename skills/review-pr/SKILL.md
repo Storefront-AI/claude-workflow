@@ -156,7 +156,8 @@ So a reader can check the script against the workflow's rules without reading it
   returned to one.
 - **Copilot and Auto-fix only follow a PR read back as ready.** Copilot is requested by the
   repository's ruleset when one applies, and by `gh pr edit --add-reviewer @copilot` otherwise,
-  never by a comment. An Auto-fix session still running on the PR is reused; one session per PR.
+  never by a comment. An Auto-fix session still running on the PR is reused; one session per PR. A new one starts only
+  when the earlier one answers that it is gone: a reuse that times out is reported as unconfirmed.
   Each line says what was read back, never what was attempted.
 - **The summary** is the shape `CONTRACTS.md` gives under **The `/review-pr` summary comment**: a
   new comment on every run, never an edit. With `--criteria` it carries `/finalize-pr`'s report

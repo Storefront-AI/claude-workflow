@@ -21,7 +21,8 @@ or by the round before it, and does the same thing.
 ## Input
 
 `$ARGUMENTS`: a PR number, and `--criteria {path}` when `/finalize-pr` starts the first round. Pass
-`--criteria` through to `/review-pr`; no later round has one.
+`--criteria` through to `/review-pr` unless this round pushes a fix first (§3); no later round has
+one.
 
 Run from the PR's worktree. `{top}` = `git rev-parse --show-toplevel`.
 
@@ -87,9 +88,12 @@ merge the base in.
 
 ## 3. Review
 
-Run `/review-pr {pr_number}` (with `--criteria {path}` when this round was given one) through the
-Skill tool, here, in this session. It reviews the head, posts its summary, and marks the PR ready or
-leaves it a draft.
+Run `/review-pr {pr_number}` through the Skill tool, here, in this session. It reviews the head,
+posts its summary, and marks the PR ready or leaves it a draft.
+
+Add `--criteria {path}` only when this round was given one and pushed nothing in §2. The report
+proves the head `/finalize-pr` ran on. After a fix push the head is a new commit, and the summary
+would call it proven on a head it was never run against, so leave it out.
 
 ## 4. The next round
 

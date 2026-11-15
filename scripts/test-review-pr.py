@@ -398,7 +398,8 @@ REPO, PR = "o/r", 74
 
 class FakeGitHub:
     def __init__(self, draft=True, rules=(), timeline_fails=False, claude=None,
-                 readback=None, comments_break=False, prior=(), push_on_ready=False):
+                 readback=None, comments_break=False, prior=(), push_on_ready=False, readback_fails=False):
+        self.readback_fails = readback_fails
         self.draft, self.rules, self.timeline_fails = draft, list(rules), timeline_fails
         self.claude, self.readback, self.comments_break = claude, readback, comments_break
         self.comments, self.events, self.calls, self.clock = list(prior), [], [], 0
@@ -454,6 +455,8 @@ class FakeGitHub:
             return done(url + "\n")
         if a[:2] == ["gh", "api"] and "/issues/comments/" in a[-1]:
             cid = int(a[-1].rsplit("/", 1)[1])
+            if self.readback_fails:
+                return done(code=1, err="HTTP 502: Bad Gateway")
             body = next(c["body"] for c in self.comments if c["id"] == cid)
             return js({"body": self.readback if self.readback is not None else body})
         if a[0] == "claude":
@@ -461,7 +464,7 @@ class FakeGitHub:
                 raise subprocess.TimeoutExpired(a, timeout)
             if self.claude == "missing":
                 raise FileNotFoundError(2, "No such file or directory", "claude")
-            return done('{"ok": true}')
+            return done('{"ok": false}' if self.claude == "gone" else '{"ok": true}')
         if a[0] == "script":
             return done("Created cloud session\nView: https://claude.ai/code/session_new1\n")
         raise AssertionError(f"unexpected call: {a[:4]}")
@@ -509,11 +512,26 @@ def undo_calls(fake):
     return [c for c in fake.calls if c[:3] == ["gh", "pr", "ready"] and "--undo" in c]
 
 
-def test_finish_survives_an_autofix_reuse_that_times_out():
-    """a timed-out Auto-fix reuse starts a new session; the PR stays ready and its summary is posted"""
+def test_an_autofix_reuse_that_times_out_starts_no_second_session():
+    """a timed-out Auto-fix reuse keeps the session and starts no second one; the PR stays ready"""
     prior = rp.compose(facts(head="aaaaaaa" + HEAD[7:]))
     fake = FakeGitHub(claude="timeout", prior=[{"id": 1, "body": prior, "created_at": "2026-11-15T09:00:00Z",
                                                 "url": "u1"}])
+    code, err = finish(fake)
+    posted = fake.summaries()[-1]["body"] if fake.summaries() else ""
+    kept = rp.merge_gate.autofix([{"body": posted}])["session"] == "session_abc"
+    return check(
+        code == 0 and not fake.draft and kept and "reuse unconfirmed" in posted
+        and "session_new1" not in posted and not any(c[0] == "script" for c in fake.calls),
+        f"exit {code}, draft {fake.draft}, {err}, {posted[:400]!r}",
+    )
+
+
+def test_an_autofix_session_that_is_gone_is_replaced():
+    """an Auto-fix session that answers `"ok": false` is gone, so a new one starts"""
+    prior = rp.compose(facts(head="aaaaaaa" + HEAD[7:]))
+    fake = FakeGitHub(claude="gone", prior=[{"id": 1, "body": prior, "created_at": "2026-11-15T09:00:00Z",
+                                             "url": "u1"}])
     code, err = finish(fake)
     posted = fake.summaries()[-1]["body"] if fake.summaries() else ""
     return check(code == 0 and not fake.draft and "session_new1" in posted, f"exit {code}, draft {fake.draft}, {err}")
@@ -566,6 +584,16 @@ def test_a_summary_that_does_not_read_back_drafts_once_and_says_it_was_posted():
     return check(
         code == 1 and fake.draft and len(undo_calls(fake)) == 1 and "nothing was posted" not in err,
         f"exit {code}, draft {fake.draft}, undo x{len(undo_calls(fake))}, stderr {err!r}",
+    )
+
+
+def test_a_read_back_that_fails_says_a_comment_may_have_been_posted():
+    """a read-back that cannot reach GitHub names the comment's URL, and never claims nothing was posted"""
+    fake = FakeGitHub(readback_fails=True)
+    code, err = finish(fake)
+    return check(
+        code == 1 and fake.draft and "nothing was posted" not in err and "#issuecomment-" in err,
+        f"exit {code}, draft {fake.draft}, stderr {err!r}",
     )
 
 

@@ -497,17 +497,27 @@ def start_autofix(found, url, pr, head, head_ref, on_push):
     """The Auto-fix line."""
     session = merge_gate.autofix(found)["session"]
     if session:
+        link = f"[{session}](https://claude.ai/code/{session})"
         try:
             proc = run(
                 "claude", "-p",
                 f"/review-pr reviewed {head} and the PR is ready. Carry on watching it under the same rules.",
                 "--cloud", session, "--output-format", "json", check=False, timeout=120,
             )
-            ok = json.loads(proc.stdout or "{}").get("ok") is True
-        except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
-            ok = False
-        if ok:
-            return f"[{session}](https://claude.ai/code/{session}) — already watching"
+            ok = json.loads(proc.stdout or "{}").get("ok")
+        except subprocess.TimeoutExpired:
+            ok = "it did not answer within two minutes"
+        except OSError as exc:
+            ok = str(exc)
+        except (ValueError, AttributeError):
+            ok = "its reply was not the expected JSON"
+        if ok is True:
+            return f"{link} — already watching"
+        # Only an explicit `"ok": false` says the session is gone. Anything
+        # else may be a live session, and a second one would push to the same branch.
+        if ok is not False:
+            why = ok if isinstance(ok, str) else "its reply carried no `ok`"
+            return f"{link} — reuse unconfirmed: {why}; no new session started"
     if not shutil.which("script"):
         return "not started: `script` is not on PATH, and `claude --cloud` needs a terminal"
     try:
@@ -531,13 +541,11 @@ def post(repo, pr, body):
     proc = run("gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", "-", stdin=body)
     url = proc.stdout.strip()
     unsure = f"a comment may have been posted ({url or 'no URL printed'}); check the PR's comments"
+    m = re.search(r"#issuecomment-(\d+)", url)
+    if not m:
+        raise Stop("`gh pr comment` printed no comment URL", posted=unsure)
     try:
-        m = re.search(r"#issuecomment-(\d+)", url)
-        if not m:
-            raise Stop("`gh pr comment` printed no comment URL", posted=unsure)
         back = gh_json("api", f"repos/{repo}/issues/comments/{m.group(1)}")["body"]
-    except Stop:
-        raise
     except Exception as exc:
         raise Stop(f"the posted summary could not be read back: {exc}", posted=unsure)
     if not back.lstrip().startswith("## /review-pr"):
@@ -577,10 +585,16 @@ def prepare(view, repo, default, criteria, full):
     branch = git("branch", "--show-current")
     if branch != head_ref:
         raise Stop(f"the checkout is on `{branch or 'a detached HEAD'}`, not the PR's branch `{head_ref}`")
+    # The reviewers read the code around the diff from this checkout, so an
+    # uncommitted change would be reviewed as if it were the head.
+    if git("status", "--porcelain") != "":
+        raise Stop(
+            "the checkout has uncommitted changes, which the reviewers would read as part of "
+            f"{head[:7]}. Commit and push, or stash, then run again"
+        )
     if git("rev-parse", "HEAD") != head:
-        clean = git("status", "--porcelain") == ""
         behind = run("git", "merge-base", "--is-ancestor", "HEAD", head, check=False).returncode == 0
-        if clean and behind:
+        if behind:
             git("merge", "--quiet", "--ff-only", f"origin/{head_ref}")
         if git("rev-parse", "HEAD") != head:
             raise Stop(

@@ -664,7 +664,7 @@ Criteria: {proven on this head by /finalize-pr: {V} verified, {W} weak, {M} manu
 Reviewer: `{the project agent's frontmatter name, or code-review}` — {approved | changes_requested}, {C} Critical, {H} High
 Security: `{vendor} ({model})` — {H} High, {M} Medium, {L} Low
 Copilot: {requested by the repository's ruleset | requested by /review-pr | did not run: {why} | not requested: Draft}{; later passes: on push | ; later passes: none, the repository does not review on push}
-Auto-fix: {[session_…](https://claude.ai/code/session_…) — {started | already watching} | not started: {why} | not started: Draft}
+Auto-fix: {[session_…](https://claude.ai/code/session_…) — {started | already watching | reuse unconfirmed: {why}; no new session started} | not started: {why} | not started: Draft}
 
 ### Criteria
 {only when /finalize-pr handed off on this head: its report, unchanged, from its first line after the
