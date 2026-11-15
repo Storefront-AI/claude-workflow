@@ -11,6 +11,8 @@ on a live pull request.
 """
 
 import importlib.util
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -370,7 +372,6 @@ def test_the_workdir_is_ignored_by_git_and_excluded_once():
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         env_cwd = Path.cwd()
         try:
-            import os
             os.chdir(repo)
             first = rp.workdir()
             rp.workdir()
@@ -383,6 +384,203 @@ def test_the_workdir_is_ignored_by_git_and_excluded_once():
         status.strip() == "" and exclude.count(rp.EXCLUDE) == 1 and first == repo / rp.WORKDIR,
         f"status={status!r} excludes={exclude.count(rp.EXCLUDE)} dir={first}",
     )
+
+
+# ---------------------------------------------------------------- finish, against a fake GitHub
+#
+# `finish` is the half that writes to GitHub. These cases run it whole, through
+# main(), with subprocess.run answered by a fake that keeps the PR's draft
+# state, its comments and its timeline. The script's own run(), to_draft()
+# and stop handling are the real ones.
+
+REPO, PR = "o/r", 74
+
+
+class FakeGitHub:
+    def __init__(self, draft=True, rules=(), timeline_fails=False, claude=None,
+                 readback=None, comments_break=False, prior=(), push_on_ready=False):
+        self.draft, self.rules, self.timeline_fails = draft, list(rules), timeline_fails
+        self.claude, self.readback, self.comments_break = claude, readback, comments_break
+        self.comments, self.events, self.calls, self.clock = list(prior), [], [], 0
+        self.push_on_ready, self.head = push_on_ready, HEAD
+
+    def tick(self):
+        self.clock += 1
+        return f"2026-11-15T10:{self.clock // 60:02d}:{self.clock % 60:02d}Z"
+
+    def request_copilot(self):
+        self.events.append({"id": len(self.events) + 1, "event": "review_requested",
+                            "requested_reviewer": {"login": "Copilot"}, "created_at": self.tick()})
+
+    def __call__(self, args, capture_output=True, text=True, cwd=None, input=None, timeout=None):
+        a = list(args)
+        self.calls.append(a)
+
+        def done(out="", code=0, err=""):
+            return subprocess.CompletedProcess(a, code, out, err)
+
+        def js(obj):
+            return done(json.dumps(obj))
+
+        if a[:3] == ["gh", "pr", "view"]:
+            return js({"headRefOid": self.head})
+        if a[:3] == ["gh", "api", f"repos/{REPO}/pulls/{PR}"]:
+            return js({"draft": self.draft})
+        if a[:3] == ["gh", "pr", "ready"]:
+            self.draft = "--undo" in a
+            if not self.draft and self.push_on_ready:
+                self.head = "d00d" + HEAD[4:]
+            if not self.draft and self.rules:
+                self.request_copilot()
+            return done()
+        if a[:2] == ["gh", "api"] and a[-1].startswith(f"repos/{REPO}/issues/{PR}/comments"):
+            if self.comments_break:
+                return done("not json")
+            return js([[{"user": {"login": "me"}, "body": c["body"], "created_at": c["created_at"],
+                         "html_url": c["url"], "id": c["id"]} for c in self.comments]])
+        if a[:2] == ["gh", "api"] and a[-1].startswith(f"repos/{REPO}/issues/{PR}/timeline"):
+            if self.timeline_fails:
+                return done(code=1, err="HTTP 502: Bad Gateway")
+            return js([self.events])
+        if a[:2] == ["gh", "api"] and "/rules/branches/" in a[-1]:
+            return js([{"type": "copilot_code_review", "parameters": p} for p in self.rules])
+        if a[:3] == ["gh", "pr", "edit"]:
+            self.request_copilot()
+            return done()
+        if a[:3] == ["gh", "pr", "comment"]:
+            cid = 1000 + len(self.comments)
+            url = f"https://github.com/{REPO}/pull/{PR}#issuecomment-{cid}"
+            self.comments.append({"id": cid, "body": input, "created_at": self.tick(), "url": url})
+            return done(url + "\n")
+        if a[:2] == ["gh", "api"] and "/issues/comments/" in a[-1]:
+            cid = int(a[-1].rsplit("/", 1)[1])
+            body = next(c["body"] for c in self.comments if c["id"] == cid)
+            return js({"body": self.readback if self.readback is not None else body})
+        if a[0] == "claude":
+            if self.claude == "timeout":
+                raise subprocess.TimeoutExpired(a, timeout)
+            if self.claude == "missing":
+                raise FileNotFoundError(2, "No such file or directory", "claude")
+            return done('{"ok": true}')
+        if a[0] == "script":
+            return done("Created cloud session\nView: https://claude.ai/code/session_new1\n")
+        raise AssertionError(f"unexpected call: {a[:4]}")
+
+    def summaries(self):
+        return [c for c in self.comments if c["body"].lstrip().startswith("## /review-pr")]
+
+
+def finish(fake, code=CODE_OK, sec=SEC_CLEAN, clock=None):
+    """Run `finish` end to end against the fake. Returns (exit code, stderr)."""
+    import contextlib
+    import io
+    import json as _json
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp)
+        (run_dir / "code-report.md").write_text(code)
+        (run_dir / "security-report.md").write_text(sec)
+        (run_dir / "manifest.json").write_text(_json.dumps({
+            "repo": REPO, "pr": PR, "head": HEAD, "head_ref": "feat/x", "base_ref": "main",
+            "title": "t", "url": f"https://github.com/{REPO}/pull/{PR}", "scope": "full", "since": None,
+            "candidates": [], "chain_note": None, "criteria": None,
+            "reports": {"code": str(run_dir / "code-report.md"), "security": str(run_dir / "security-report.md")},
+        }))
+        real_run, real_wait = rp.subprocess.run, rp.wait_for
+        real_now = getattr(rp, "now", None)
+        rp.subprocess.run = fake
+        rp.wait_for = lambda predicate, seconds, step=10: predicate()
+        if clock and real_now:
+            rp.now = lambda: clock
+        err, out = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                code_ = rp.main(["finish", "--run", str(run_dir), "--reviewer", "code-reviewer",
+                                 "--security", "codex (default)"])
+        except BaseException as exc:  # an escape is the failure these cases exist to catch
+            code_ = f"escaped: {exc!r}"
+        finally:
+            rp.subprocess.run, rp.wait_for = real_run, real_wait
+            if real_now:
+                rp.now = real_now
+        return code_, err.getvalue()
+
+
+def undo_calls(fake):
+    return [c for c in fake.calls if c[:3] == ["gh", "pr", "ready"] and "--undo" in c]
+
+
+def test_finish_survives_an_autofix_reuse_that_times_out():
+    """a timed-out Auto-fix reuse starts a new session; the PR stays ready and its summary is posted"""
+    prior = rp.compose(facts(head="aaaaaaa" + HEAD[7:]))
+    fake = FakeGitHub(claude="timeout", prior=[{"id": 1, "body": prior, "created_at": "2026-11-15T09:00:00Z",
+                                                "url": "u1"}])
+    code, err = finish(fake)
+    posted = fake.summaries()[-1]["body"] if fake.summaries() else ""
+    return check(code == 0 and not fake.draft and "session_new1" in posted, f"exit {code}, draft {fake.draft}, {err}")
+
+
+def test_finish_survives_a_missing_claude_binary():
+    """with no `claude` on PATH the PR stays ready, and the Auto-fix line says why"""
+    prior = rp.compose(facts(head="aaaaaaa" + HEAD[7:]))
+    fake = FakeGitHub(claude="missing", prior=[{"id": 1, "body": prior, "created_at": "2026-11-15T09:00:00Z",
+                                                "url": "u1"}])
+    code, err = finish(fake)
+    return check(code == 0 and not fake.draft and fake.summaries(), f"exit {code}, draft {fake.draft}, {err}")
+
+
+def test_a_timeline_that_cannot_be_read_leaves_a_passing_pr_ready():
+    """a failed timeline read means Copilot did not run, not that the review failed"""
+    fake = FakeGitHub(timeline_fails=True)
+    code, err = finish(fake)
+    body = fake.summaries()[-1]["body"] if fake.summaries() else ""
+    return check(
+        code == 0 and not fake.draft and "Copilot did not run" in body and "502" in body,
+        f"exit {code}, draft {fake.draft}, {err}",
+    )
+
+
+def test_a_ruleset_request_on_an_already_ready_pr_is_not_repeated():
+    """on a re-run against a ready PR, a ruleset request after the last summary is read back, not repeated"""
+    prior = rp.compose(facts(head="aaaaaaa" + HEAD[7:]))
+    fake = FakeGitHub(draft=False, rules=[{"review_on_push": True}],
+                      prior=[{"id": 1, "body": prior, "created_at": "2026-11-15T09:00:00Z", "url": "u1"}])
+    fake.request_copilot()  # the push after that summary, reviewed on push by the ruleset
+    code, err = finish(fake)
+    edits = [c for c in fake.calls if c[:3] == ["gh", "pr", "edit"]]
+    line = live.field(fake.summaries()[-1]["body"], "Copilot") if fake.summaries() else None
+    return check(code == 0 and not edits and "ruleset" in (line or ""), f"edits {len(edits)}, line {line!r}, {err}")
+
+
+def test_a_copilot_request_is_read_back_whatever_the_local_clock_says():
+    """a local clock running ahead never turns a real Copilot request into 'did not run'"""
+    fake = FakeGitHub()
+    code, err = finish(fake, clock="2099-01-01T00:00:00Z")
+    line = live.field(fake.summaries()[-1]["body"], "Copilot") if fake.summaries() else None
+    return check(code == 0 and (line or "").startswith("requested by /review-pr"), f"line {line!r}, {err}")
+
+
+def test_a_summary_that_does_not_read_back_drafts_once_and_says_it_was_posted():
+    """a posted summary that reads back wrong returns the PR to draft once, and never claims nothing was posted"""
+    fake = FakeGitHub(readback="@-")
+    code, err = finish(fake)
+    return check(
+        code == 1 and fake.draft and len(undo_calls(fake)) == 1 and "nothing was posted" not in err,
+        f"exit {code}, draft {fake.draft}, undo x{len(undo_calls(fake))}, stderr {err!r}",
+    )
+
+
+def test_an_unexpected_error_after_marking_ready_returns_the_pr_to_draft():
+    """any error after the PR was marked ready returns it to draft and exits 1, never a traceback"""
+    fake = FakeGitHub(comments_break=True)
+    code, err = finish(fake)
+    return check(code == 1 and fake.draft and not fake.summaries(), f"exit {code}, draft {fake.draft}, {err}")
+
+
+def test_a_push_while_marking_ready_returns_the_pr_to_draft():
+    """a head that moves while the PR is marked ready is a stop: the PR goes back to draft, nothing posted"""
+    fake = FakeGitHub(push_on_ready=True)
+    code, err = finish(fake)
+    return check(code == 1 and fake.draft and not fake.summaries(), f"exit {code}, draft {fake.draft}, {err}")
 
 
 def main():

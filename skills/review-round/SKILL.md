@@ -69,6 +69,10 @@ gh api "repos/{owner}/{repo}/issues/comments/{id}" --jq '.body' \
 report, the `<details>` blocks at the end of the same comment, only for a finding whose line does not
 say enough to fix it.
 
+When the section says `None.`, nothing in the code blocked: the summary is `Draft` because the PR
+could not be marked ready, and its `### Outcome` line says why. There is nothing to fix and nothing
+to push. Go to §3, so `/review-pr` tries again.
+
 **Fix each one** at its `path:line`. A finding that is a behaviour bug gets a failing test first,
 then the fix. Keep the change to what the findings name: a round that wanders makes the next review
 a review of new code.

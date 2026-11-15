@@ -9,13 +9,11 @@ Usage (run from the PR's checkout):
   review-pr.py finish --run {dir} --reviewer {name} --security "{vendor} ({model})" [--skipped "{entry}: {why}"]...
   review-pr.py abort --run {dir} --why "{reason}"
 
-/review-pr used to carry every step in its own prose: the pre-flight, the
-scope, the Spec heuristic, the prompts, the ready state, Copilot, Auto-fix and
-the summary. A session that ran it read all of that, read the references it
-pasted into prompts, and composed the summary by hand, on every round. What is
-left to the session is what needs a model: dispatching the two reviewers,
-walking the security chain, and, with no project reviewer, running the
-fallback review.
+/review-pr runs once per review round, in a session that holds what it reads.
+Everything here is deterministic, so it is tested once rather than re-read by a
+model on every round, and the session keeps only what needs judgement:
+dispatching the two reviewers, walking the security chain, and, with no
+project reviewer, running the fallback review.
 
 workdir prints the directory a run's files live in,
 `{toplevel}/.claude/review-pr`, after making sure git ignores it locally
@@ -46,7 +44,6 @@ Exit 2 is a failure before the PR could be read, so its state is unknown.
 """
 
 import argparse
-import datetime
 import importlib.util
 import json
 import re
@@ -95,7 +92,15 @@ ON_PUSH = {
 
 
 class Stop(Exception):
-    """A reason this run cannot produce a review. The PR goes back to draft."""
+    """A reason this run cannot produce a review. The PR goes back to draft.
+
+    `posted` says what reached the PR, because a stop after the comment exists
+    must not report that nothing was posted.
+    """
+
+    def __init__(self, message, posted="nothing was posted"):
+        super().__init__(message)
+        self.posted = posted
 
 
 class Unread(Exception):
@@ -344,26 +349,28 @@ def last_proven(found):
     return None
 
 
+def criteria_line(report, proven):
+    if report is not None:
+        n = criteria_counts(report)
+        return (
+            f"proven on this head by /finalize-pr: {n['verified']} verified, {n['weak']} weak, "
+            f"{n['manual']} manual, {n['unverified']} unverified"
+        )
+    if proven:
+        return f"not re-proven on this head; last proven on {proven}"
+    return "not re-proven on this head; no earlier summary carries a Criteria report"
+
+
 def compose(s):
     """The summary comment CONTRACTS.md describes, from a finished run's facts."""
     code, sec = s["code"], s["security"]
     out = [f"## /review-pr — {s['outcome']}", ""]
     if s["outcome"] == "Ready" and s["copilot_ran"] is False:
         out += [f"Copilot did not run: {s['copilot_why']}.", ""]
-    if s["criteria"] is not None:
-        n = criteria_counts(s["criteria"])
-        criteria_line = (
-            f"proven on this head by /finalize-pr: {n['verified']} verified, {n['weak']} weak, "
-            f"{n['manual']} manual, {n['unverified']} unverified"
-        )
-    elif s["last_proven"]:
-        criteria_line = f"not re-proven on this head; last proven on {s['last_proven']}"
-    else:
-        criteria_line = "not re-proven on this head; no earlier summary carries a Criteria report"
     out += [
         f"Head: `{s['head'][:7]}`",
         f"Scope: {s['scope']}",
-        f"Criteria: {criteria_line}",
+        f"Criteria: {criteria_line(s['criteria'], s['last_proven'])}",
         f"Reviewer: `{s['reviewer']}` — {code['verdict']}, {code['critical']} Critical, {code['high']} High",
         f"Security: `{s['security_entry']}` — {sec['high']} High, {sec['medium']} Medium, {sec['low']} Low",
         f"Copilot: {s['copilot_line']}",
@@ -421,17 +428,22 @@ def comments(repo, pr):
     ]
 
 
-def copilot_requests(repo, pr, after):
-    return [
-        e for e in paged(f"repos/{repo}/issues/{pr}/timeline?per_page=100")
+def copilot_requests(repo, pr):
+    """{event key: created_at} for every Copilot review request on the PR's timeline.
+
+    Requests are told apart by the timeline's own ids, never by this machine's
+    clock: a local clock running ahead of GitHub's would hide a real request.
+    """
+    return {
+        str(e.get("id") or e.get("created_at")): e.get("created_at") or ""
+        for e in paged(f"repos/{repo}/issues/{pr}/timeline?per_page=100")
         if e.get("event") == "review_requested"
         and ((e.get("requested_reviewer") or {}).get("login") or "").lower().startswith("copilot")
-        and (e.get("created_at") or "") >= after
-    ]
+    }
 
 
-def now():
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def new_since(repo, pr, before):
+    return bool(set(copilot_requests(repo, pr)) - set(before))
 
 
 def wait_for(predicate, seconds, step=10):
@@ -444,8 +456,14 @@ def wait_for(predicate, seconds, step=10):
         time.sleep(step)
 
 
-def hand_to_copilot(repo, pr, base_ref, ready_at):
-    """(ran, why, line, on_push) for the Copilot step."""
+def hand_to_copilot(repo, pr, base_ref, before_ready, last_summary_at):
+    """(ran, why, line, on_push) for the Copilot step.
+
+    before_ready is the request snapshot taken just before this run marked the
+    PR ready, or None when it was ready already. Then a ruleset that reviews on
+    push made its request after the push, which is after the last summary, and
+    both timestamps are GitHub's.
+    """
     try:
         rules = gh_json("api", f"repos/{repo}/rules/branches/{base_ref}")
         params = [r.get("parameters") or {} for r in rules if r.get("type") == "copilot_code_review"]
@@ -456,11 +474,15 @@ def hand_to_copilot(repo, pr, base_ref, ready_at):
         "; later passes: on push" if on_push
         else "; later passes: none, the repository does not review on push"
     )
-    if auto and ready_at and wait_for(lambda: copilot_requests(repo, pr, ready_at), 60):
+    if auto and before_ready is not None and wait_for(lambda: new_since(repo, pr, before_ready), 60):
         return True, None, "requested by the repository's ruleset" + later, on_push
-    asked = now()
+    if auto and before_ready is None and last_summary_at and any(
+        at >= last_summary_at for at in copilot_requests(repo, pr).values()
+    ):
+        return True, None, "requested by the repository's ruleset" + later, on_push
+    asked = copilot_requests(repo, pr)
     proc = run("gh", "pr", "edit", str(pr), "--repo", repo, "--add-reviewer", "@copilot", check=False)
-    if proc.returncode == 0 and wait_for(lambda: copilot_requests(repo, pr, asked), 20, step=5):
+    if proc.returncode == 0 and wait_for(lambda: new_since(repo, pr, asked), 20, step=5):
         return True, None, "requested by /review-pr" + later, on_push
     if proc.returncode != 0:
         why = ((proc.stderr or proc.stdout).strip().splitlines() or ["`gh pr edit` failed"])[-1]
@@ -475,14 +497,14 @@ def start_autofix(found, url, pr, head, head_ref, on_push):
     """The Auto-fix line."""
     session = merge_gate.autofix(found)["session"]
     if session:
-        proc = run(
-            "claude", "-p",
-            f"/review-pr reviewed {head} and the PR is ready. Carry on watching it under the same rules.",
-            "--cloud", session, "--output-format", "json", check=False, timeout=120,
-        )
         try:
+            proc = run(
+                "claude", "-p",
+                f"/review-pr reviewed {head} and the PR is ready. Carry on watching it under the same rules.",
+                "--cloud", session, "--output-format", "json", check=False, timeout=120,
+            )
             ok = json.loads(proc.stdout or "{}").get("ok") is True
-        except ValueError:
+        except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
             ok = False
         if ok:
             return f"[{session}](https://claude.ai/code/{session}) — already watching"
@@ -495,6 +517,8 @@ def start_autofix(found, url, pr, head, head_ref, on_push):
         )
     except subprocess.TimeoutExpired:
         return "not started: `claude --cloud` printed no session within two minutes"
+    except OSError as exc:
+        return f"not started: {exc}"
     m = re.search(r"\b(session_[A-Za-z0-9]+)", proc.stdout + proc.stderr)
     if not m:
         tail = (proc.stdout + proc.stderr).strip().splitlines()[-1:] or ["no output"]
@@ -503,14 +527,25 @@ def start_autofix(found, url, pr, head, head_ref, on_push):
 
 
 def post(repo, pr, body):
+    """Post the summary and read it back. Returns its URL."""
     proc = run("gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", "-", stdin=body)
-    m = re.search(r"#issuecomment-(\d+)", proc.stdout)
-    if not m:
-        raise Stop(f"`gh pr comment` printed no comment URL: {proc.stdout.strip()[-200:]}")
-    back = gh_json("api", f"repos/{repo}/issues/comments/{m.group(1)}")["body"]
+    url = proc.stdout.strip()
+    unsure = f"a comment may have been posted ({url or 'no URL printed'}); check the PR's comments"
+    try:
+        m = re.search(r"#issuecomment-(\d+)", url)
+        if not m:
+            raise Stop("`gh pr comment` printed no comment URL", posted=unsure)
+        back = gh_json("api", f"repos/{repo}/issues/comments/{m.group(1)}")["body"]
+    except Stop:
+        raise
+    except Exception as exc:
+        raise Stop(f"the posted summary could not be read back: {exc}", posted=unsure)
     if not back.lstrip().startswith("## /review-pr"):
-        raise Stop("the posted summary does not read back as a /review-pr summary")
-    return proc.stdout.strip()
+        raise Stop(
+            "the posted comment does not read back as a /review-pr summary",
+            posted=f"a comment that is not a summary was posted at {url}",
+        )
+    return url
 
 
 # ---------------------------------------------------------------- commands
@@ -528,7 +563,7 @@ def cmd_prepare(pr, criteria, full):
     manifest = {"pr": view["number"], "repo": repo, "is_draft": view["isDraft"]}
     try:
         manifest.update(prepare(view, repo, default, criteria, full))
-    except Stop as exc:
+    except Exception as exc:
         exc.manifest = manifest
         raise
     return manifest
@@ -598,11 +633,11 @@ def prepare(view, repo, default, criteria, full):
 
     agents = []
     for f in sorted((top / ".claude" / "agents").glob("*.md")):
-        fm = f.read_text(encoding="utf-8").split("---")
-        if len(fm) >= 3:
+        fm = re.match(r"\A---\n(.*?)\n---\s*$", f.read_text(encoding="utf-8"), re.S | re.M)
+        if fm:
             meta = dict(
                 (k.strip(), v.strip()) for k, _, v in
-                (line.partition(":") for line in fm[1].splitlines() if ":" in line)
+                (line.partition(":") for line in fm.group(1).splitlines() if ":" in line)
             )
             agents.append({"name": meta.get("name"), "description": meta.get("description"), "file": f.name})
 
@@ -653,85 +688,92 @@ def cmd_check(kind, report):
 
 
 def cmd_finish(run_dir, reviewer, security_entry, skipped):
-    m = json.loads((Path(run_dir) / "manifest.json").read_text(encoding="utf-8"))
-    repo, pr, head = m["repo"], m["pr"], m["head"]
-    texts = {k: Path(p).read_text(encoding="utf-8") if Path(p).is_file() else "" for k, p in m["reports"].items()}
+    manifest = json.loads((Path(run_dir) / "manifest.json").read_text(encoding="utf-8"))
+    repo, pr, head = manifest["repo"], manifest["pr"], manifest["head"]
+    texts = {
+        k: Path(p).read_text(encoding="utf-8") if Path(p).is_file() else ""
+        for k, p in manifest["reports"].items()
+    }
     code, sec = parse_code(texts["code"]), parse_security(texts["security"])
     if code is None:
-        raise Stop(f"the code reviewer's report at {m['reports']['code']} has no sentinel lines")
+        raise Stop(f"the code reviewer's report at {manifest['reports']['code']} has no sentinel lines")
     if sec is None:
-        raise Stop(f"the security report at {m['reports']['security']} has no sentinel lines")
+        raise Stop(f"the security report at {manifest['reports']['security']} has no sentinel lines")
     now_head = gh_json("pr", "view", str(pr), "--repo", repo, "--json", "headRefOid")["headRefOid"]
     if now_head != head:
         raise Stop(f"the PR's head moved to {now_head[:7]} during the review of {head[:7]}; run it again")
 
+    found = merge_gate.summaries({"comments": comments(repo, pr)})
     blocking = code_blocks(code) or security_blocks(sec)
     was_draft = is_draft(repo, pr)
-    ready_at = None
+    before_ready = None
     if blocking:
-        n = len(blocking_lines(code, sec))
+        count = len(blocking_lines(code, sec))
         error = to_draft(repo, pr)
         if error:
             raise Stop(f"the review blocks and the PR could not be returned to draft: {error}")
         outcome = "Draft"
         outcome_line = (
-            f"Left as a draft: {n} blocking finding(s)." if was_draft
-            else f"Returned to draft: {n} blocking finding(s)."
+            f"Left as a draft: {count} blocking finding(s)." if was_draft
+            else f"Returned to draft: {count} blocking finding(s)."
         )
     else:
         if was_draft:
-            ready_at = now()
+            before_ready = best_effort(lambda: copilot_requests(repo, pr), lambda why: {})
             run("gh", "pr", "ready", str(pr), "--repo", repo, check=False)
         if is_draft(repo, pr):
             outcome, outcome_line = "Draft", "Left as a draft: `gh pr ready` did not take."
         else:
             outcome, outcome_line = "Ready", "Marked ready."
+            # A push between the head check and `gh pr ready` would leave an
+            # unreviewed head ready; main returns the PR to draft on this stop.
+            moved = gh_json("pr", "view", str(pr), "--repo", repo, "--json", "headRefOid")["headRefOid"]
+            if moved != head:
+                raise Stop(f"the PR's head moved to {moved[:7]} while {head[:7]} was being marked ready; run it again")
 
-    found = merge_gate.summaries({"comments": comments(repo, pr)})
     copilot_ran, copilot_why = None, None
     if outcome == "Ready":
-        copilot_ran, copilot_why, copilot_line, on_push = hand_to_copilot(repo, pr, m["base_ref"], ready_at)
-        autofix_line = start_autofix(found, m["url"], pr, head, m["head_ref"], on_push)
+        last_at = found[-1]["created_at"] if found else None
+        copilot_ran, copilot_why, copilot_line, on_push = best_effort(
+            lambda: hand_to_copilot(repo, pr, manifest["base_ref"], before_ready, last_at),
+            lambda why: (False, why, f"did not run: {why}", False),
+        )
+        autofix_line = best_effort(
+            lambda: start_autofix(found, manifest["url"], pr, head, manifest["head_ref"], on_push),
+            lambda why: f"not started: {why}",
+        )
     else:
         copilot_line, autofix_line = "not requested: Draft", "not started: Draft"
 
     criteria = None
-    if m.get("criteria") and Path(m["criteria"]).is_file():
-        criteria = Path(m["criteria"]).read_text(encoding="utf-8")
+    if manifest.get("criteria") and Path(manifest["criteria"]).is_file():
+        criteria = Path(manifest["criteria"]).read_text(encoding="utf-8")
+    proven = last_proven(found)
     body = compose({
-        "outcome": outcome, "outcome_line": outcome_line, "head": head, "scope": m["scope"],
-        "criteria": criteria, "last_proven": last_proven(found), "reviewer": reviewer,
+        "outcome": outcome, "outcome_line": outcome_line, "head": head, "scope": manifest["scope"],
+        "criteria": criteria, "last_proven": proven, "reviewer": reviewer,
         "security_entry": security_entry, "code": code, "security": sec,
         "copilot_ran": copilot_ran, "copilot_why": copilot_why, "copilot_line": copilot_line,
-        "autofix_line": autofix_line, "candidates": m["candidates"],
+        "autofix_line": autofix_line, "candidates": manifest["candidates"],
         "code_report": texts["code"], "security_report": texts["security"],
     })
     (Path(run_dir) / "summary.md").write_text(body, encoding="utf-8")
-    try:
-        url = post(repo, pr, body)
-    except Stop:
-        to_draft(repo, pr)
-        raise
+    url = post(repo, pr, body)
 
     drift = len(code["drift"])
-    n = criteria_counts(criteria) if criteria is not None else None
     lines = [
         f"/review-pr — {outcome}",
         "",
-        f"PR:       #{pr} — {m['title']}",
-        f"URL:      {m['url']}",
+        f"PR:       #{pr} — {manifest['title']}",
+        f"URL:      {manifest['url']}",
         f"Summary:  {url}",
         f"Head:     {head}",
-        f"Scope:    {'full PR' if m['scope'] == 'full' else 'the commits since ' + m['since']}",
-        "Criteria: " + (
-            f"proven on this head by /finalize-pr: {n['verified']} verified, {n['weak']} weak, "
-            f"{n['manual']} manual, {n['unverified']} unverified" if n
-            else f"not re-proven; last proven on {last_proven(found) or 'no earlier summary'}"
-        ),
+        f"Scope:    {'full PR' if manifest['scope'] == 'full' else 'the commits since ' + manifest['since']}",
+        f"Criteria: {criteria_line(criteria, proven)}",
         f"Reviewer: {reviewer} — {code['verdict']}, {code['critical']} Critical, {code['high']} High",
         f"Security: {security_entry} — {sec['high']} High, {sec['medium']} Medium, {sec['low']} Low",
         *[f"          skipped {s}" for s in skipped],
-        *([f"          {m['chain_note']}"] if m.get("chain_note") else []),
+        *([f"          {manifest['chain_note']}"] if manifest.get("chain_note") else []),
         f"Drift:    {drift} advisory finding(s)" if drift else "Drift:    none",
         f"Outcome:  {outcome_line}",
         f"Copilot:  {copilot_line}",
@@ -745,6 +787,19 @@ def cmd_finish(run_dir, reviewer, security_entry, skipped):
     ]
     print("\n".join(lines))
     return 0
+
+
+def best_effort(step, fallback):
+    """Run a step whose failure is reported on its own line rather than stopping the run.
+
+    Copilot and Auto-fix follow a review that passed. When either cannot run,
+    the PR stays ready and the summary says why, so their errors never become
+    a stop.
+    """
+    try:
+        return step()
+    except (Stop, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        return fallback(str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__)
 
 
 def main(argv):
@@ -783,8 +838,11 @@ def main(argv):
     except Unread as exc:
         print(f"✘ {exc}", file=sys.stderr)
         return 2
-    except Stop as exc:
-        manifest = getattr(exc, "manifest", None)
+    except Exception as caught:
+        # An error after `finish` marked the PR ready would otherwise leave it
+        # ready with no summary, so every error is a stop.
+        exc = caught if isinstance(caught, Stop) else Stop(f"{type(caught).__name__}: {caught}")
+        manifest = getattr(caught, "manifest", None)
         if manifest is None and a.cmd in ("finish", "abort"):
             try:
                 manifest = json.loads((Path(a.run) / "manifest.json").read_text(encoding="utf-8"))
@@ -793,8 +851,8 @@ def main(argv):
         error = to_draft(manifest["repo"], manifest["pr"]) if manifest else "the PR is unknown"
         print(f"✘ {exc}", file=sys.stderr)
         print(
-            "  nothing was posted; " + (f"the PR could not be returned to draft: {error}" if error
-                                        else "the PR is a draft"),
+            f"  {exc.posted}; " + (f"the PR could not be returned to draft: {error}" if error
+                                   else "the PR is a draft"),
             file=sys.stderr,
         )
         return 1

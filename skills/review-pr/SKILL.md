@@ -148,7 +148,9 @@ So a reader can check the script against the workflow's rules without reading it
   Critical or High `FINDING:`, or when the security report counts or lists any High. A report that
   says `approved` beside a non-zero count is read by its count.
 - **Spec drift never blocks.** It is a question for a person, resolved as `CONTRACTS.md` describes
-  under **Keeping an implemented Spec true**. Medium and Low findings are listed, not blocking.
+  under **Keeping an implemented Spec true**. Medium and Low findings never block: the security
+  reviewer's are listed under `### Security findings (not blocking)`, and the code reviewer's are in
+  its full report.
 - **Not blocking** → the PR is marked ready and read back. If it still reads as a draft, the
   outcome is `Draft`, because `/merge-pr` stops on drafts. **Blocking** → it stays a draft, or is
   returned to one.
