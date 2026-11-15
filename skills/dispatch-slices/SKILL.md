@@ -12,6 +12,9 @@ This is the fan-out step of the `/to-spec` → `/critique-spec` → `/to-tickets
 **`/dispatch-slices`** → `/merge-stack` pipeline. It runs in the **main checkout** and builds
 nothing itself: it checks the Spec, picks the Slices, writes the prompts, and launches. Each
 dispatched session runs `/start-issue`, then `/acceptance-tests`, then `/tdd`, then `/finalize-pr`.
+A passing `/finalize-pr` starts the review rounds itself: each `/review-round` is a new background
+session in the same worktree, so the reviews and their fixes never run in the session that built
+the Slice.
 
 Two gates stand in front of the fan-out, and both are about the Spec rather than about any one
 Slice. A Spec nobody doubted does not get built (§2). A Spec whose Criteria are not all owned does
@@ -446,6 +449,13 @@ The four skills are one chain, not a menu: a session dispatched straight to `/td
 that names its tests after Criteria, and arrives at `/finalize-pr` with nothing matching an id. See
 `/acceptance-tests` for why that step is where it is.
 
+The chain ends at `/finalize-pr`, not at a ready PR. When `/finalize-pr` does not block, it starts
+`/review-round` as a new background session in the worktree and the dispatched session ends there.
+Each round fixes what the last `/review-pr` summary blocked on, reviews again, and starts the next
+round when that review blocks too, for at most three fixes. A round reads everything it needs from
+the PR, so none of them carries the build's history. The prompt does not mention the rounds:
+`/finalize-pr` owns the hand-off, and a Slice finalized by hand gets the same rounds.
+
 **Name every worktree `issue-{n}`.** The mapping from worktree to Slice has to be mechanical,
 because `/merge-stack` and `/merge-pr` both need to find a branch's worktree later and there is
 nowhere to write a note between sessions.
@@ -475,14 +485,16 @@ Verified against 2.1.263: the command needs no TTY and returns immediately from 
 Bash call, and no workspace-trust dialog appears when the main checkout has been trusted once — the
 worktree lives inside it, under `.claude/worktrees/`.
 
-### Why the bypass flag is right here and nowhere else
+### Why the bypass flag is right here, and in the review rounds, and nowhere else
 
 A background session has nobody to answer a permission prompt. It does not fail and it does not
 auto-deny: it stalls as `Needs input` and waits indefinitely, and a fan-out of five Slices can sit
 idle overnight on a single `git push` nobody approved. `--dangerously-skip-permissions` is the
 honest way to launch work you are not watching.
 
-That reasoning does not extend past this step. A session a human is sitting in front of reads the
+The same holds for the review rounds `/finalize-pr` and `/review-round` start: each is a background
+session nobody is watching, and each passes the flag for this reason. That reasoning does not extend
+further. A session a human is sitting in front of reads the
 repo's committed `permissions.allow`, which is narrow and reviewable; do not add the flag to
 anything interactive, and do not widen the repo's allowlist to match what a background session is
 doing.
@@ -513,6 +525,9 @@ Watch:     claude agents                 # interactive view, needs a terminal
 Take over: claude attach <id>
 Stop:      claude stop <id>              # transcript kept; claude rm <id> removes the worktree too
 
+Later, each worktree also holds its review rounds: one background session per round, started by
+/finalize-pr and /review-round, listed in `claude agents` with the worktree as their cwd.
+
 HITL Slices (#62) will stop and wait for you to check #60 C2. Attach to one to run the app
 locally, then /finalize-pr from there.
 ```
@@ -541,7 +556,7 @@ it for a session that ran one command. It is for a human to look at, not for an 
 - One confirmation (§6), then run through the whole set.
 - The dispatch prompt names `/start-issue`, `/acceptance-tests`, `/tdd`, `/finalize-pr` in that order; the HITL variant runs `/frames` and stops before `/finalize-pr`.
 - Every prompt carries the resolved port block and the rule about ports outside it. Never dispatch a session that has to work out which ports are free.
-- Pass `--dangerously-skip-permissions` on these background dispatches, and nowhere else.
+- Pass `--dangerously-skip-permissions` on these background dispatches, and on the review-round sessions `/finalize-pr` and `/review-round` start, and nowhere else.
 - A dispatch counts as done only when its output carries a background session id. An exit code is not evidence.
 - Never parse `claude logs` output. Read `claude agents --json`.
 - If a dispatch fails, report it and continue with the rest — a partial fan-out is fine and re-runnable, since §3 skips Slices that are now assigned or already have a worktree.

@@ -80,7 +80,9 @@ the repo is offered both plugins when they first trust the workspace:
       /acceptance-tests →  one failing test per Criterion, at the Slice's Seam
       /tdd              →  red-green-refactor to the acceptance criteria               (Pocock)
       /frames           →  capture what a [manual] criterion says a person would see
-      /finalize-pr      →  gates, Criteria, PR description; hands a passing PR on
+      /finalize-pr      →  gates, Criteria, PR description; hands a passing PR to a review round
+  └ per review round, a new background session in the same worktree:
+      /review-round     →  fix what the last review blocked on, push, review again; at most three
       /review-pr        →  code review, security review and spec drift; the only skill that marks ready;
                            hands the PR to Copilot and a cloud Auto-fix session that answers it
 /merge-stack         →  land the batch in dependency order, tearing down worktrees
@@ -193,6 +195,14 @@ rewritten twice for CLI behaviour that changed underneath it.
 addressing, spinner frames, kilobytes of it for a session that ran one command. No skill here parses
 it. Progress comes from `claude agents --json` (`state`: working / blocked / done / failed) and from
 the slice's own issue and PR.
+
+**Each review round is a new session.** By the time `/finalize-pr` hands off, the session that
+built a Slice holds several hundred thousand tokens of history, and a review that blocks leads to a
+fix and another review. Run there, every round re-reads the whole build. So `/finalize-pr` starts
+`/review-round` as a new background session and ends, and each round that still blocks starts the
+next. The `/review-pr` summary is the hand-off: it lists each blocking finding with its `path:line`.
+The mechanics of a review live in `scripts/review-pr.py`, and reviewers are pointed at their prompt
+files rather than handed the text, so a round's session holds little beyond the fix.
 
 **Background sessions get `--dangerously-skip-permissions`; nothing else does.** A detached session
 has nobody to answer a permission prompt, so it stalls as `Needs input` and waits indefinitely — an

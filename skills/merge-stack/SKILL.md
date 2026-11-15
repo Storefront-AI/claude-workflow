@@ -93,7 +93,8 @@ Optional flags:
   `git rev-parse origin/{headRefName}` as `{tip[pr]}`. Concept 4's `--onto` rebase and §5's
   recovery both need a base's pre-merge tip *after* its branch is gone.
 - **Snapshot worktrees.** `git worktree list --porcelain` → a `{branch → worktree path}` map, and
-  `claude agents --json` → a `{cwd → id, state}` map. Together they say, per PR, whether its branch
+  `claude agents --json` → a `{cwd → [{id, state}]}` map. A worktree holds several sessions: the one
+  that built the Slice and one per review round, so key a list, not one id. Together they say, per PR, whether its branch
   is pinned and whether a session is still running in it. Everything in §4.3 and §4.5 depends on
   this map, and it is cheaper to take once than to re-derive per PR.
 
@@ -206,8 +207,9 @@ For each PR in the order:
      do it even though GitHub usually retargets on its own, because "usually" is what burned this
      workflow before.
    - **Release the branch.** If the §1 map gave this branch a worktree:
-     - session still running → `claude stop {id}` (its transcript is kept).
-     - then `claude rm {id}`, which removes the session and its worktree.
+     - every session in it still running → `claude stop {id}` (its transcript is kept).
+     - then `claude rm {id}` for each. The session that created the worktree removes it with
+       itself; a review round's session was started inside it and leaves it.
      `claude rm` has **two** refusals, and only one of them offers an override. Verified on 2.1.263:
 
      ```

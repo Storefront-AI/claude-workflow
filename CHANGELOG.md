@@ -5,7 +5,26 @@ from the version bumps in git history. Numbers in parentheses are pull requests.
 
 ## 3.1.0 (unreleased)
 
-Each check after the code is written now runs in one place.
+Each check after the code is written now runs in one place, and each review round runs in a
+session of its own.
+
+- **Review rounds.** A Not blocking `/finalize-pr` no longer runs `/review-pr` in the session that
+  built the Slice. It starts the new `/review-round` as a background session in the same worktree
+  and ends. A round fixes what the latest `/review-pr` summary lists under `### Blocking findings`,
+  pushes once, runs `/review-pr`, and, when that blocks too, starts the next round as another new
+  session. There are at most three fix rounds after the last `Ready`; `merge-gate.py` counts them as
+  `rounds`. Measured on two Slice sessions, the build alone reached 290k to 350k tokens before the
+  first review, and each review there added about 65k more.
+- **`/review-pr` keeps only the judgement.** `scripts/review-pr.py` now does the pre-flight, the
+  scope, the candidate Specs, the prompts, the verdict, the ready state, Copilot, Auto-fix and the
+  summary, with tests. The skill drops from 488 lines to under 180. Reviewers get a pointer to a
+  rendered prompt file instead of the prompt's text, and the summary is composed by the script, not
+  by hand. The code reviewer's prompt moves to `references/code-review-prompt.md`. Both reviewers end
+  their reply with one `FINDING:` line per finding, described in `CONTRACTS.md` under **The reviewer
+  reports**; the security prompt is now version 3.
+- A round holds an Auto-fix session before it pushes a fix, so two sessions never push to one
+  branch. `/merge-pr` and `/merge-stack` stop and remove every session in a worktree, the review
+  rounds included.
 
 - `/finalize-pr` pushes first and reads the quality gates from CI on the pushed head. It runs lint,
   typecheck, format and tests locally only in a repository with no CI that runs them. It used to
