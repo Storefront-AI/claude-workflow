@@ -568,9 +568,11 @@ the same answer: which standard was this held to, and why that one.
 ## 13. Hand off to `/review-round` (conditional)
 
 - **Not blocking** → first check that no round is already running here. Read `claude agents --json`:
-  when another session (any entry but this session's own) has `state` `working` and this
-  worktree's top level (`git rev-parse --show-toplevel`) as its `cwd`, an earlier run's round is
-  still using the checkout. Start no round: report that session's `id` in §14 and end here. Two
+  when an entry has this worktree's top level (`git rev-parse --show-toplevel`) as its `cwd`,
+  `status` `busy`, and a `sessionId` that is not `$CLAUDE_CODE_SESSION_ID` (this session's own
+  entry, which is always `busy` here), an earlier run's round is still using the checkout. Read
+  `status`, never `state`: an idle background session still lists `state: working`. Start no
+  round: report that session's `id` (its `sessionId` when it has no `id`) in §14 and end here. Two
   rounds in one checkout edit and commit over each other.
 
   Otherwise start the first review round in a new background session in this worktree, and end
