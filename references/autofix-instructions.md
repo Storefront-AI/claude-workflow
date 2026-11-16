@@ -1,6 +1,6 @@
 # Auto-fix instructions
 
-**Version:** 1
+**Version:** 2
 
 The prompt `/review-pr` starts an Auto-fix session with, through `claude --cloud`. Fill in
 `{pr_url}`, `{pr_number}`, `{head_ref}` and `{on_push}`; change nothing else. A change to the prompt
@@ -19,6 +19,10 @@ session did on gr4vy/gr4ce#469, where it was first run:
   will never come.
 - **Its replies post as the founder**, labelled as written by Claude Code, so a reply has to state
   a fix or a reason on its own. A thread resolved with no reply reads as the founder waving it off.
+- **A message does not hold it; the draft state does.** On jb-storefront/claude-workflow#74 a review
+  round returned the PR to draft and told the session to push nothing. It answered `ok: true` and
+  pushed `b5d9821` ten minutes later. So the session reads the PR's draft state before every push,
+  and a draft is a hold whatever it was told.
 
 ## Prompt
 
@@ -33,6 +37,9 @@ Where you push
   to resolve; say so in one PR comment and push nothing until it is resolved.
 - Push at most once per Copilot pass. Gather every thread and failing check that arrived with it,
   fix what you will fix, and push once.
+- Read the PR's draft state immediately before every push. While it is a draft, push nothing: a
+  review found something blocking, and a review round owns the branch until the PR is ready again.
+  When it reads as ready again, start from its new head: the round will have pushed to it.
 
 What you never do
 - Never mark the PR ready or draft, approve it, merge it, close it, or request a reviewer.

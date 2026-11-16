@@ -580,8 +580,11 @@ the same answer: which standard was this held to, and why that one.
 
   ```bash
   cd "$(git rev-parse --show-toplevel)" && claude --bg --dangerously-skip-permissions \
-    "/review-round {pr_number} --criteria {the §12 report path}"
+    "/review-round {pr_number} --launched-by $CLAUDE_CODE_SESSION_ID --criteria {the §12 report path}"
   ```
+
+  The shell fills in this session's id. The round leaves it out of its one-round-per-worktree check,
+  because this session is still `busy` while it writes §14.
 
   The round runs `/review-pr`, which reviews the code and its security, marks the PR ready if
   neither blocks, hands it to Copilot and an Auto-fix session, and posts one summary that carries

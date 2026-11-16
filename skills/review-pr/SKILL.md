@@ -137,8 +137,11 @@ python3 <scripts>/review-pr.py finish --run {run} --reviewer {name} \
 
 It decides the verdict, sets the PR ready or draft and reads it back, and, on a ready PR, requests
 Copilot and starts or reuses the Auto-fix session. Then it posts the summary and reads it back. It
-prints the local summary: relay it as it is. Exit 1 → relay its `✘` line. Nothing was posted, and
-the PR is a draft.
+prints the local summary: relay it as it is. Exit 1 → relay its `✘` line and the line under it,
+which says what reached the PR. Usually nothing was posted and the PR is a draft. When a `Ready`
+summary may have been posted but could not be read back, the PR stays ready: a draft under a `Ready`
+summary would read as reviewed and strand there, while a ready PR with no summary reads as unreviewed
+to the merge gate.
 
 ## What `finish` decides
 

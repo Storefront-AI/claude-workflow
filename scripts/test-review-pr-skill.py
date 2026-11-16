@@ -55,6 +55,20 @@ def test_no_skill_posts_a_body_of_at_dash():
     return not hits, "; ".join(hits)
 
 
+def test_every_review_round_launch_names_its_launcher():
+    """round launcher"""
+    # A launcher stays `busy` while it writes its report, and /review-round stops on
+    # any other busy session in its checkout unless it is told which one started it.
+    launches = {
+        f"{md.relative_to(ROOT)}:{n}": line
+        for md in sorted((ROOT / "skills").rglob("*.md"))
+        for n, line in enumerate(md.read_text(encoding="utf-8").splitlines(), start=1)
+        if '"/review-round {' in line
+    }
+    bare = [at for at, line in launches.items() if "--launched-by $CLAUDE_CODE_SESSION_ID" not in line]
+    return bool(launches) and not bare, f"launches {list(launches)}, without --launched-by {bare}"
+
+
 def main():
     cases = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

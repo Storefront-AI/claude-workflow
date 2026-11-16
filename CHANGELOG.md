@@ -25,6 +25,17 @@ session of its own.
 - A round holds an Auto-fix session before it pushes a fix, so two sessions never push to one
   branch. `/merge-pr` and `/merge-stack` stop and remove every session in a worktree, the review
   rounds included.
+- The Auto-fix prompt, now version 2, reads the PR's draft state before every push and pushes
+  nothing while it is a draft. On #74 a session answered the hold with `ok: true` and pushed anyway
+  (#75).
+- A round is told which session launched it (`--launched-by`) and leaves that session out of its
+  one-round-per-worktree check. It used to see its launcher still `busy`, wait in a way the harness
+  refuses, and stop the hand-off (#75).
+- `review-pr.py` leaves a PR ready when a `Ready` summary may have been posted but could not be
+  read back, so a draft never sits under a `Ready` summary that reads as reviewed. A failed Copilot
+  snapshot no longer credits an older request to the ruleset. Each run that posts deletes this PR's
+  run directories older than the newest three, leaving any run with no summary yet until it is a
+  day old, since its reviewers may still be working in it (#75).
 
 - `/finalize-pr` pushes first and reads the quality gates from CI on the pushed head. It runs lint,
   typecheck, format and tests locally only in a repository with no CI that runs them. It used to

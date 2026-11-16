@@ -387,26 +387,49 @@ def test_the_workdir_is_ignored_by_git_and_excluded_once():
     )
 
 
+def git_in(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
 def test_every_prepare_run_gets_a_run_directory_of_its_own():
-    """two runs on one PR and head get different run directories, so neither overwrites the other's files"""
+    """two `prepare` runs on one PR and head get different run directories, so neither overwrites the other's files"""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(tmp).resolve()
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        origin, repo = Path(tmp, "origin.git").resolve(), Path(tmp, "work").resolve()
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t"), ("commit.gpgsign", "false")):
+            git_in(repo, "config", k, v)
+        git_in(repo, "remote", "add", "origin", str(origin))
+        git_in(repo, "commit", "-q", "--allow-empty", "-m", "base")
+        git_in(repo, "push", "-q", "origin", "main")
+        git_in(repo, "checkout", "-q", "-b", "feat/x")
+        git_in(repo, "commit", "-q", "--allow-empty", "-m", "work")
+        git_in(repo, "push", "-q", "origin", "feat/x")
+        head = git_in(repo, "rev-parse", "HEAD")
+        view = {"number": PR, "headRefOid": head, "headRefName": "feat/x", "baseRefName": "main",
+                "title": "t", "url": "u", "isDraft": True, "closingIssuesReferences": [], "body": ""}
+        real_run, real_listed = rp.subprocess.run, rp.spec_lib.listed
+
+        def fake_run(args, **kw):
+            if args[:2] == ["gh", "api"] and "/comments" in args[-1]:
+                return subprocess.CompletedProcess(args, 0, "[[]]", "")
+            return real_run(args, **kw)
+
         env_cwd = Path.cwd()
         try:
             os.chdir(repo)
-            first = rp.new_run_dir(PR, HEAD)
-            (first / "manifest.json").write_text("first")
-            second = rp.new_run_dir(PR, HEAD)
+            rp.subprocess.run, rp.spec_lib.listed = fake_run, lambda *a, **k: []
+            first = Path(rp.prepare(view, REPO, "main", None, False)["run"])
             kept = (first / "manifest.json").read_text()
+            second = Path(rp.prepare(view, REPO, "main", None, False)["run"])
             parent = rp.workdir()
         finally:
+            rp.subprocess.run, rp.spec_lib.listed = real_run, real_listed
             os.chdir(env_cwd)
-        named = all(re.fullmatch(rf"{PR}-{HEAD[:7]}-\d{{8}}T\d{{6}}Z(-\d+)?", d.name) for d in (first, second))
         return check(
-            first != second and kept == "first" and named and first.parent == parent == second.parent
-            and not list(second.iterdir()),
-            f"first={first.name} second={second.name} kept={kept!r}",
+            first != second and kept == (first / "manifest.json").read_text()
+            and first.parent == parent == second.parent and (second / "manifest.json").is_file(),
+            f"first={first} second={second} parent={parent}",
         )
 
 
@@ -422,8 +445,10 @@ REPO, PR = "o/r", 74
 
 class FakeGitHub:
     def __init__(self, draft=True, rules=(), timeline_fails=False, claude=None,
-                 readback=None, comments_break=False, prior=(), push_on_ready=False, readback_fails=False):
+                 readback=None, comments_break=False, prior=(), push_on_ready=False, readback_fails=False,
+                 timeline_fails_once=False, ruleset_silent=False):
         self.readback_fails = readback_fails
+        self.timeline_fails_once, self.ruleset_silent = timeline_fails_once, ruleset_silent
         self.draft, self.rules, self.timeline_fails = draft, list(rules), timeline_fails
         self.claude, self.readback, self.comments_break = claude, readback, comments_break
         self.comments, self.events, self.calls, self.clock = list(prior), [], [], 0
@@ -455,7 +480,7 @@ class FakeGitHub:
             self.draft = "--undo" in a
             if not self.draft and self.push_on_ready:
                 self.head = "d00d" + HEAD[4:]
-            if not self.draft and self.rules:
+            if not self.draft and self.rules and not self.ruleset_silent:
                 self.request_copilot()
             return done()
         if a[:2] == ["gh", "api"] and a[-1].startswith(f"repos/{REPO}/issues/{PR}/comments"):
@@ -464,7 +489,8 @@ class FakeGitHub:
             return js([[{"user": {"login": "me"}, "body": c["body"], "created_at": c["created_at"],
                          "html_url": c["url"], "id": c["id"]} for c in self.comments]])
         if a[:2] == ["gh", "api"] and a[-1].startswith(f"repos/{REPO}/issues/{PR}/timeline"):
-            if self.timeline_fails:
+            if self.timeline_fails or self.timeline_fails_once:
+                self.timeline_fails_once = False
                 return done(code=1, err="HTTP 502: Bad Gateway")
             return js([self.events])
         if a[:2] == ["gh", "api"] and "/rules/branches/" in a[-1]:
@@ -497,13 +523,21 @@ class FakeGitHub:
         return [c for c in self.comments if c["body"].lstrip().startswith("## /review-pr")]
 
 
-def finish(fake, code=CODE_OK, sec=SEC_CLEAN, clock=None):
-    """Run `finish` end to end against the fake. Returns (exit code, stderr)."""
+RUN_NAME = f"{PR}-{HEAD[:7]}-20261115T100000Z"
+
+
+def finish(fake, code=CODE_OK, sec=SEC_CLEAN, clock=None, parent=None):
+    """Run `finish` end to end against the fake. Returns (exit code, stderr).
+
+    The run directory sits in `parent` (a fresh temporary directory when none
+    is given), named as `prepare` names one, so its siblings are earlier runs.
+    """
     import contextlib
     import io
     import json as _json
     with tempfile.TemporaryDirectory() as tmp:
-        run_dir = Path(tmp)
+        run_dir = Path(parent or tmp) / RUN_NAME
+        run_dir.mkdir()
         (run_dir / "code-report.md").write_text(code)
         (run_dir / "security-report.md").write_text(sec)
         (run_dir / "manifest.json").write_text(_json.dumps({
@@ -616,9 +650,80 @@ def test_a_read_back_that_fails_says_a_comment_may_have_been_posted():
     fake = FakeGitHub(readback_fails=True)
     code, err = finish(fake)
     return check(
-        code == 1 and fake.draft and "nothing was posted" not in err and "#issuecomment-" in err,
-        f"exit {code}, draft {fake.draft}, stderr {err!r}",
+        code == 1 and "nothing was posted" not in err and "#issuecomment-" in err,
+        f"exit {code}, stderr {err!r}",
     )
+
+
+def test_a_ready_summary_that_may_be_posted_never_sits_on_a_draft_pr():
+    """when a Ready summary may be on the PR, the PR stays ready, so the gate never reads fresh on a draft"""
+    fake = FakeGitHub(readback_fails=True)
+    code, err = finish(fake)
+    return check(
+        code == 1 and fake.summaries() and not fake.draft and not undo_calls(fake),
+        f"exit {code}, draft {fake.draft}, undo x{len(undo_calls(fake))}, stderr {err!r}",
+    )
+
+
+def test_a_failed_snapshot_never_credits_an_older_copilot_request_to_the_ruleset():
+    """with no snapshot before ready, an older Copilot request is not read as the ruleset's new one"""
+    fake = FakeGitHub(rules=[{"review_on_push": False}], timeline_fails_once=True, ruleset_silent=True)
+    fake.request_copilot()  # an earlier pass, requested before this run
+    code, err = finish(fake)
+    line = live.field(fake.summaries()[-1]["body"], "Copilot") if fake.summaries() else None
+    return check(
+        code == 0 and "ruleset" not in (line or "") and (line or "").startswith("requested by /review-pr"),
+        f"exit {code}, line {line!r}, {err}",
+    )
+
+
+def run_names(*stamps, pr=PR, head=HEAD):
+    return [f"{pr}-{head[:7]}-{s}" for s in stamps]
+
+
+def test_a_posted_run_prunes_this_prs_older_run_directories():
+    """after a summary posts, only the newest run directories of this PR remain; other PRs' are untouched"""
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        older = run_names("20261115T090000Z", "20261115T091000Z", "20261115T092000Z", "20261115T093000Z-2")
+        other = run_names("20261101T000000Z", pr=PR + 1)
+        for name in older + other:
+            (parent / name).mkdir()
+            (parent / name / "summary.md").write_text("done")
+        code, err = finish(FakeGitHub(), parent=parent)
+        left = sorted(p.name for p in parent.iterdir())
+    want = sorted(older[-(rp.KEEP_RUNS - 1):] + other + [RUN_NAME])
+    return check(code == 0 and left == want, f"exit {code}, left {left}, want {want}, {err}")
+
+
+def test_pruning_leaves_a_run_that_may_still_be_going():
+    """an older run with no summary yet keeps its prompts, reports and manifest; an abandoned one goes"""
+    import time as _time
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        stamp = lambda ago: _time.strftime("%Y%m%dT%H%M%SZ", _time.gmtime(_time.time() - ago))
+        abandoned, going, done = run_names(stamp(rp.ABANDONED_AFTER + 3600), stamp(3600), stamp(1800))
+        newer = run_names(stamp(60), stamp(30), stamp(10))
+        for name in [abandoned, going, done] + newer:
+            (parent / name).mkdir()
+        (parent / going / "manifest.json").write_text("{}")
+        (parent / done / "summary.md").write_text("done")
+        code, err = finish(FakeGitHub(), parent=parent)
+        left = sorted(p.name for p in parent.iterdir())
+    want = sorted([going, RUN_NAME] + newer)
+    return check(code == 0 and left == want, f"exit {code}, left {left}, want {want}, {err}")
+
+
+def test_a_run_that_posts_nothing_prunes_nothing():
+    """a run that stops before posting leaves every earlier run directory, so its evidence survives"""
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        older = run_names("20261115T090000Z", "20261115T091000Z", "20261115T092000Z", "20261115T093000Z")
+        for name in older:
+            (parent / name).mkdir()
+        code, err = finish(FakeGitHub(push_on_ready=True), parent=parent)
+        left = sorted(p.name for p in parent.iterdir())
+    return check(code == 1 and left == sorted(older + [RUN_NAME]), f"exit {code}, left {left}")
 
 
 def test_an_unexpected_error_after_marking_ready_returns_the_pr_to_draft():
