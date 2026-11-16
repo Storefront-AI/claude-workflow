@@ -189,6 +189,7 @@ repo root, first match wins:
 | Lockfile | Toolchain | Manifest that declares the gates |
 | --- | --- | --- |
 | `bun.lockb` | `bun` | `package.json` |
+| `bun.lock` | `bun` | `package.json` |
 | `pnpm-lock.yaml` | `pnpm` | `package.json` |
 | `package-lock.json` | `npm` | `package.json` |
 | `yarn.lock` | `yarn` | `package.json` |

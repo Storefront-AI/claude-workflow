@@ -166,7 +166,29 @@ def c9_an_empty_directory_is_none_and_stays_empty(root):
     return not left, f"left {left} behind"
 
 
+def malformed_package_json_fails_cleanly(root):
+    (root / "package-lock.json").write_text("{}")
+    (root / "package.json").write_text("{not json")
+    proc = run(root)
+    if proc.returncode == 0:
+        return False, f"exited 0 and printed {proc.stdout!r}"
+    if "Traceback" in proc.stderr or "package.json" not in proc.stderr:
+        return False, f"stderr was {proc.stderr.strip()!r}"
+    return True, ""
+
+
+def ruff_lint_table_alone_configures_ruff(root):
+    (root / "uv.lock").write_text("")
+    (root / "pyproject.toml").write_text('[tool.ruff.lint]\nselect = ["E"]\n')
+    _, gates = report(root)
+    got = (gates.get("lint"), gates.get("format check"))
+    return got == ("uv run ruff check .", "uv run ruff format --check ."), f"ruff gates are {got}"
+
+
 CASES = [
+    ("a package.json that does not parse fails without a traceback and names the file",
+     malformed_package_json_fails_cleanly),
+    ("[tool.ruff.lint] alone declares both ruff gates", ruff_lint_table_alone_configures_ruff),
     ("#77 C1 each of the six lockfiles prints its toolchain, bun.lock included",
      c1_each_lockfile_names_its_toolchain),
     ("#77 C2 declared lint and test print their npm commands, the other gates not declared",

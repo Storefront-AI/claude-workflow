@@ -37,6 +37,15 @@ session of its own.
   run directories older than the newest three, leaving any run with no summary yet until it is a
   day old, since its reviewers may still be working in it (#75).
 
+- `scripts/toolchain.py {repo root}` reports what a repo has: a recognised toolchain (`bun`, `pnpm`,
+  `npm`, `yarn`, `uv`) with the command for each gate its manifest declares, or one of
+  `node, no lockfile`, `unrecognised`, `below root` and `none`. `/setup-workflow` §1 runs it in
+  place of its prose lockfile list, and gives the state as the reason for the `**Specs:**` value it
+  proposes. What it proposes is unchanged, with one exception below. `/finalize-pr` and
+  `/start-issue` still detect from their own tables (#77).
+- `bun.lock`, Bun's text lockfile, is recognised as `bun` alongside `bun.lockb`, by the script and
+  by the `/finalize-pr` and `/start-issue` tables. A repo with only `bun.lock` used to read as
+  having no toolchain, so `/setup-workflow` proposed `Specs: off` for it (#77).
 - `/finalize-pr` pushes first and reads the quality gates from CI on the pushed head. It runs lint,
   typecheck, format and tests locally only in a repository with no CI that runs them. It used to
   run them locally and then read CI too, and read CI before pushing, so the rollup could belong to
