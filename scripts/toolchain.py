@@ -44,7 +44,10 @@ GATES = ["lint", "typecheck", "format check", "test"]
 NOT_DECLARED = "not declared"
 # How many paths a `below root` line names before it counts the rest.
 BELOW_ROOT_SHOWN = 10
-TOML_TABLE = re.compile(r"^\s*\[{1,2}\s*([^\]]+?)\s*\]{1,2}\s*(#.*)?$")
+TOML_KEY = r"""(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')"""
+TOML_TABLE = re.compile(
+    rf"^\s*(\[\[?)\s*({TOML_KEY}(?:\s*\.\s*{TOML_KEY})*)\s*(\]\]?)\s*(#.*)?$"
+)
 
 
 class Unreadable(Exception):
@@ -82,12 +85,44 @@ def node_gates(root, pm):
     }
 
 
+def open_string(line, closing):
+    """The multiline-string delimiter still open at the end of line, or None.
+
+    `closing` is the delimiter open at its start.
+    """
+    i = 0
+    while i < len(line):
+        if closing:
+            while i < len(line) and not line.startswith(closing, i):
+                # A backslash escapes the next character in a basic string only.
+                i += 2 if line[i] == "\\" and closing == '"""' else 1
+            if i >= len(line):
+                return closing
+            i += 3
+            closing = None
+        elif line[i] == "#":
+            break
+        elif line.startswith(('"""', "'''"), i):
+            closing = line[i:i + 3]
+            i += 3
+        elif line[i] in "\"'":
+            quote = line[i]
+            i += 1
+            while i < len(line) and line[i] != quote:
+                i += 2 if line[i] == "\\" and quote == '"' else 1
+            i += 1
+        else:
+            i += 1
+    return closing
+
+
 def toml_tables(path):
-    """The table names a TOML file opens.
+    """The tables a TOML file opens, each a tuple of its key's parts.
 
     Read off the header lines, because the scripts here run on a Python whose
     standard library has no TOML parser, and which tables exist is all the gates
-    depend on.
+    depend on. A header may quote a part or put spaces round its dots, and a
+    line inside a multiline string is not a header whatever it looks like.
     """
     if not path.is_file():
         return set()
@@ -95,21 +130,30 @@ def toml_tables(path):
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, ValueError) as exc:
         raise Unreadable(f"{path.name} could not be read: {exc}")
-    return {m.group(1) for m in map(TOML_TABLE.match, lines) if m}
+    tables = set()
+    closing = None
+    for line in lines:
+        header = None if closing else TOML_TABLE.match(line)
+        if header and len(header.group(1)) == len(header.group(3)):
+            parts = re.findall(TOML_KEY, header.group(2))
+            tables.add(tuple(p[1:-1] if p[0] in "\"'" else p for p in parts))
+        else:
+            closing = open_string(line, closing)
+    return tables
 
 
 def uv_gates(root):
     tables = toml_tables(root / "pyproject.toml")
 
-    def configures(table):
-        return any(t == table or t.startswith(table + ".") for t in tables)
+    def configures(*table):
+        return any(t[:len(table)] == table for t in tables)
 
-    ruff = configures("tool.ruff")
+    ruff = configures("tool", "ruff")
     return {
         "lint": "uv run ruff check ." if ruff else NOT_DECLARED,
-        "typecheck": "uv run mypy" if configures("tool.mypy") else NOT_DECLARED,
+        "typecheck": "uv run mypy" if configures("tool", "mypy") else NOT_DECLARED,
         "format check": "uv run ruff format --check ." if ruff else NOT_DECLARED,
-        "test": "uv run pytest -q" if configures("tool.pytest.ini_options") else NOT_DECLARED,
+        "test": "uv run pytest -q" if configures("tool", "pytest", "ini_options") else NOT_DECLARED,
     }
 
 

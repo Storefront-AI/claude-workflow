@@ -185,10 +185,48 @@ def ruff_lint_table_alone_configures_ruff(root):
     return got == ("uv run ruff check .", "uv run ruff format --check ."), f"ruff gates are {got}"
 
 
+RUFF_GATES = ("uv run ruff check .", "uv run ruff format --check .")
+
+
+def ruff_gates(root, pyproject):
+    (root / "uv.lock").write_text("")
+    (root / "pyproject.toml").write_text(pyproject)
+    _, gates = report(root)
+    return gates.get("lint"), gates.get("format check")
+
+
+def quoted_or_spaced_ruff_header_configures_ruff(root):
+    wrong = []
+    for header in ('[tool."ruff"]', "[tool . ruff]", "[ 'tool'.ruff.lint ]"):
+        got = ruff_gates(root, f"{header}\nline-length = 100\n")
+        if got != RUFF_GATES:
+            wrong.append(f"{header} gave {got}")
+    return not wrong, "; ".join(wrong)
+
+
+def header_text_inside_a_multiline_string_is_not_a_table(root):
+    wrong = []
+    for quote in ('"""', "'''"):
+        got = ruff_gates(
+            root,
+            f"[project]\nname = \"x\"\ndescription = {quote}\n[tool.ruff]\n{quote}\n",
+        )
+        if got != ("not declared", "not declared"):
+            wrong.append(f"{quote} gave {got}")
+    got = ruff_gates(root, '[project]\ndescription = """\nx\n"""\n\n[tool.ruff]\n')
+    if got != RUFF_GATES:
+        wrong.append(f"a table after the string closes gave {got}")
+    return not wrong, "; ".join(wrong)
+
+
 CASES = [
     ("a package.json that does not parse fails without a traceback and names the file",
      malformed_package_json_fails_cleanly),
     ("[tool.ruff.lint] alone declares both ruff gates", ruff_lint_table_alone_configures_ruff),
+    ("a ruff header with a quoted part or spaced dots declares both ruff gates",
+     quoted_or_spaced_ruff_header_configures_ruff),
+    ("a [tool.ruff] line inside a multiline string declares nothing",
+     header_text_inside_a_multiline_string_is_not_a_table),
     ("#77 C1 each of the six lockfiles prints its toolchain, bun.lock included",
      c1_each_lockfile_names_its_toolchain),
     ("#77 C2 declared lint and test print their npm commands, the other gates not declared",
