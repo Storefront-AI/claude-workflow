@@ -485,6 +485,35 @@ Verified against 2.1.263: the command needs no TTY and returns immediately from 
 Bash call, and no workspace-trust dialog appears when the main checkout has been trusted once — the
 worktree lives inside it, under `.claude/worktrees/`.
 
+### Count the sessions in each worktree, once the last dispatch returns
+
+The ids the launches printed are the sessions you know about, not the sessions that exist. A
+worktree can end up with a second session nobody's launch reported, and two sessions in one
+worktree share a branch: both claim the issue, both commit, and the second push loses. So after the
+last dispatch, list every session on the machine and count them per worktree, whatever their kind:
+
+```bash
+top=$(git rev-parse --show-toplevel)
+claude agents --json | jq -r --arg top "$top" '
+  map(select(.cwd | test("^" + $top + "/\\.claude/worktrees/issue-[0-9]+(/|$)")))
+  | group_by(.cwd | capture("/worktrees/(?<w>issue-[0-9]+)").w)
+  | .[] | "\(length) \(.[0].cwd | capture("/worktrees/(?<w>issue-[0-9]+)").w) \(map(.id // .sessionId) | join(" "))"'
+```
+
+Each `issue-{n}` you dispatched must show exactly one session, and its id must be the one that
+dispatch printed. Match on a path under the worktree, not on the worktree itself: a session that
+has `cd`ed into a subdirectory still belongs to it.
+
+- **Zero:** the dispatch failed, whatever it printed. Report it as failed.
+- **Two or more:** report every id in that worktree, mark which one this run launched, and do not
+  stop any of them. Either may already have claimed the issue or pushed, and which to keep is the
+  person's call.
+- **One, with a different id:** report it the same way. The session you launched is gone and
+  something else is working the Slice.
+
+Run it right after the fan-out, not later. Once a session reaches `/finalize-pr` its worktree
+legitimately holds a review-round session too, and a count of two stops meaning anything.
+
 ### Why the bypass flag is right here, and in the review rounds, and nowhere else
 
 A background session has nobody to answer a permission prompt. It does not fail and it does not
@@ -558,5 +587,6 @@ it for a session that ran one command. It is for a human to look at, not for an 
 - Every prompt carries the resolved port block and the rule about ports outside it. Never dispatch a session that has to work out which ports are free.
 - Pass `--dangerously-skip-permissions` on these background dispatches, and on the review-round sessions `/finalize-pr` and `/review-round` start, and nowhere else.
 - A dispatch counts as done only when its output carries a background session id. An exit code is not evidence.
+- After the last dispatch, count every session in each `issue-{n}` worktree from `claude agents --json`. Exactly one, with the printed id, or the Slice is reported as failed or duplicated. Never stop a duplicate unasked.
 - Never parse `claude logs` output. Read `claude agents --json`.
 - If a dispatch fails, report it and continue with the rest — a partial fan-out is fine and re-runnable, since §3 skips Slices that are now assigned or already have a worktree.
