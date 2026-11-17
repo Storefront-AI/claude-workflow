@@ -102,6 +102,19 @@ Give the state as the reason, in the script's words. Only `none` is a repo with 
 `unrecognised` or `below root` repo is an established one this plugin cannot run the gates of, and
 telling its owner it has no tests is wrong.
 
+**How `/frames` will serve the app.** Another read-only script:
+
+```bash
+python3 <this skill dir>/../../scripts/serve.py "$(git rev-parse --show-toplevel)" --port 20001
+```
+
+([serve.py](../../scripts/serve.py).) The port is a placeholder; only the first line matters here.
+`manifest` or `detected` means `/frames` works in this repo with nothing written. `ambiguous`,
+`invalid` or `none` means it will skip every pull request until someone adds the `**Serve:**` line
+the output names. Record the line, and whether `claude mcp list` shows `chrome-devtools`. Write
+nothing for either: `docs/agents/frames.md` is optional, and a guessed Serve line that nobody ran
+is worse than none.
+
 **Three third-party dependencies, checked and never installed**
 
 - **Pocock's skills.** Installed: `claude plugin list` mentions `mattpocock-skills`. Setup has run:
@@ -458,6 +471,18 @@ Google: unavailable, so /critique-spec and /review-pr skip entry 2 of their list
 
   Nothing about Antigravity was written into .claude/settings.json: enabling a third-party plugin
   for everyone who clones this repo is yours to decide, not this skill's.
+```
+
+**Frames**, when `serve.py` printed anything but `manifest` or `detected`, or the chrome-devtools
+MCP server is missing:
+
+```
+Frames: /frames will skip this repo's pull requests
+
+  serve            {the serve.py state, in its words}
+                   add a **Serve:** line with {port} to docs/agents/frames.md
+  chrome-devtools  {configured | not found}
+                   claude mcp add chrome-devtools --scope user -- npx -y chrome-devtools-mcp@latest --isolated --headless
 ```
 
 For each vendor, print the plugin lines before the CLI lines, because the plugin's own setup command

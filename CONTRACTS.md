@@ -450,36 +450,62 @@ genuinely proves both.
 
 ## The frame
 
-A frame is the image that proves a `[manual]` Criterion. It stands to a manual Criterion as a test
-stands to an automated one: the Criterion names what a person would see, and the frame is what they
-would have seen, captured from the code under review.
+A frame is a screenshot of a screen a pull request changes, taken from the code under review and
+from the code it changes, so a reviewer sees the before and the after without a checkout, a build or
+a dev server.
 
-It exists because `manual` was the one state with no evidence. `verified` names a test's
-`path:line`, `weak` names the code's, `unverified` names nothing and says so. `manual` named a
-sentence telling a reviewer to go and look, which meant the reviewer built the branch, ran it, and
-found their own way to the screen before they could disagree with anything.
+It exists because a reviewer of a UI change otherwise builds the branch, runs it, and finds their
+own way to the screen before they can disagree with anything. It started as evidence for a
+`[manual]` Criterion, the one state with no other evidence, and that is still where it binds. It
+now covers every screen the diff touches, because the reviewer's cost is the same whether a
+Criterion names the screen or not.
 
-### The name carries the id
+### Before and after
 
-A frame is named `{id-slug}-{short description}.png`, where the slug lowercases the cited form of
+Every screen is captured twice: from the pull request's head, and from its merge base with the base
+branch, served side by side from a checkout `/frames` makes and removes. A route that does not exist
+on the base is a **new screen**, published after only. A before that fails for any other reason is
+reported and never blocks, because the after is what is under review.
+
+### The name carries the binding
+
+A frame is named `{binding}-{short description}-{before|after}.png`. The binding is the slug of the
+Criterion it proves, or `screen` when no Criterion names it. The slug lowercases the cited form of
 the id and collapses every run of characters that are not letters or digits to one hyphen:
 
 | Cited id | Slug | A frame |
 | --- | --- | --- |
-| `#60 C2` | `60-c2` | `60-c2-cart-summary-balance.png` |
-| `gr4vy/gr4ce#21 C4` | `gr4vy-gr4ce-21-c4` | `gr4vy-gr4ce-21-c4-citation-anchor.png` |
+| `#60 C2` | `60-c2` | `60-c2-cart-summary-balance-after.png` |
+| `gr4vy/gr4ce#21 C4` | `gr4vy-gr4ce-21-c4` | `gr4vy-gr4ce-21-c4-citation-anchor-before.png` |
+| none | `screen` | `screen-settings-billing-after.png` |
 
 `/finalize-pr` matches the leading slug, which is the same literal match it already does on a test
 name. The binding between a Criterion and its evidence is therefore a property of the filename, not
 a judgement anybody makes at review time.
 
-### Frames come from a manifest, never from improvisation
+### Works without configuration
 
-A repository that produces frames declares them in `docs/agents/frames.md`, beside
-`issue-tracker.md`, `triage-labels.md`, `domain.md` and `workflow.md`. One serve line and one table:
+`/frames` needs nothing from a repository to run. It works out three things for itself:
+
+- **How to serve the app.** `scripts/serve.py` reads the repository's shape: a Node frontend's
+  framework and dev script, Django's `manage.py`, Rails's `bin/rails`, or a static `index.html`. It
+  prints one command with the port wired in, or says why it cannot, in which case `/frames` stops
+  and names the `**Serve:**` line to add. Its guess is proven by the port answering, never assumed.
+- **Which screens.** Declared rows first, then the `[manual]` Criteria, then the routes that render
+  the changed UI files, at most six. Every path comes from the manifest or a route definition in the
+  code, never from a guess.
+- **How to reach a state.** Clicks and form fills through the chrome-devtools MCP, the same steps
+  on the before and the after.
+
+### `docs/agents/frames.md` overrides, and declares
+
+A repository that wants to steer `/frames` adds `docs/agents/frames.md`, beside `issue-tracker.md`,
+`triage-labels.md`, `domain.md` and `workflow.md`. Every part is optional:
 
 ```markdown
-**Serve:** `pnpm --dir frontend build && pnpm --dir frontend preview --port {port} --strictPort`
+**Serve:** `pnpm --dir frontend dev --port {port} --strictPort`
+**Auth:** `/login` as `$FRAMES_USER` / `$FRAMES_PASSWORD`
+**Viewport:** `1280x800`
 
 | Criterion | Path | Viewport | Kind |
 | --- | --- | --- | --- |
@@ -487,29 +513,40 @@ A repository that produces frames declares them in `docs/agents/frames.md`, besi
 | gr4vy/gr4ce#21 C5 | /?scene=stream-stop | 1440x900 | filmstrip |
 ```
 
-- **Serve** is one command that brings the built application up on a port it is given. `{port}` is
-  substituted with the session's own preview port from the port block, so a fan-out of five Slices
-  serves five applications at once without any of them choosing a port.
-- **Path** is appended to `http://localhost:{port}`. It resolves to a scene: the screen rendered
-  from fixtures the repository controls, never from a live tenant.
-- **Viewport** is `{width}x{height}`, pinned so that a frame differs between two pull requests only
-  where the interface differs.
-- **Kind** is `still` for one image, or `filmstrip` for several captures of one scene stitched into
-  one image. `filmstrip` is for behaviour that only exists over time, such as an answer arriving
-  progressively. Video is not a kind: GitHub inlines an image and does not inline an `mp4`.
+- **Serve** is one command, run from the repository root, that brings the app up on the port it is
+  given. `{port}` is substituted with the session's own port from the port block, so a fan-out of
+  five Slices serves ten applications at once without any of them choosing a port. A Serve line
+  without `{port}` is invalid.
+- **Auth** is the local app's sign-in path and the names of two environment variables holding a
+  local seed user's credentials. Names, never values: the file is committed.
+- **Viewport** is `{width}x{height}`, `1440x900` when absent, pinned so that two frames differ only
+  where the interface does.
+- A **row** pins a Criterion to a screen. **Path** is appended to `http://localhost:{port}`.
+  **Kind** is `still` for one image, or `filmstrip` for several captures of one screen stitched into
+  one image, for behaviour that only exists over time. Video is not a kind: GitHub inlines an image
+  and does not inline an `mp4`.
+
+On a **public** repository the file is also the opt-in. Without it `/frames` captures nothing there,
+because `ui-evidence` is as public as the repository and a frame shows whatever the local data holds.
+
+### What blocks
 
 A manifest row is a declaration that this Criterion has a frame. That is what makes the gate
 asymmetric, and the asymmetry is the whole design:
 
 | Situation | What `/finalize-pr` does |
 | --- | --- |
-| The Criterion has a row, and the frame was captured | Reports `manual`, citing the frame |
-| The Criterion has a row, and no frame came back | **Blocks.** A declared frame that did not get produced is a gate that did not run |
-| The Criterion has no row | Reports `manual` with no frame, and does not block |
-| The repository has no `frames.md` | Reports `manual` with no frame, and does not block |
+| A declared row, and its after was captured | Reports `manual`, citing the frame |
+| A declared row, and no usable after came back | **Blocks.** A declared frame that did not get produced is a gate that did not run |
+| A screen `/frames` chose for itself, captured or not | Reports it, and does not block |
+| A before that did not come back | Reports it, and does not block |
+| No `frames.md`, no UI change, or no way to serve the app | Reports why, and does not block |
 
-Nothing here makes a repository produce frames. It makes a repository that said it would produce
-one say so out loud when it did not, which is the same rule the quality gates are already held to.
+A usable after is a PNG of the screen in its rendered state. A blank page, a spinner or a capture
+that was withheld is not one. An error overlay is published, because it is the finding, and is not
+one either. Nothing here makes a repository produce frames. It makes a repository that said it
+would produce one say so out loud when it did not, which is the same rule the quality gates are
+already held to.
 
 ### Where a frame lands
 
@@ -524,7 +561,11 @@ gh api -X PUT "repos/{owner}/{repo}/contents/pr-{number}/{frame}.png" \
 The branch is never merged, so the default branch stays free of binaries, and a reviewer with
 access to the repository can open the image without a checkout, a download or a build. The pull
 request's repository rather than the tracker's, because that is the repository a reviewer of this
-diff already has open, and the one whose access already matches.
+diff already has open, and the one whose access already matches. A re-run replaces the directory's
+contents, and deletes the frames it did not produce this time.
+
+The PR body carries them as a `## Screens` table, one row per screen, with a Before and an After
+column.
 
 ### A frame never changes a Criterion's state
 
@@ -533,17 +574,36 @@ does not show that the behaviour holds, and the four states exist precisely beca
 falls short of a passing test used to get reported as though it did not. `[manual]` still wins over
 every other state, and `/finalize-pr` still never blocks on `manual` itself.
 
-### Scenes are fed fixtures, and nothing else
+### Local only, and looked at
 
-No tenant data, no live credential, no real card number, no session token on screen or in a URL a
-frame captures. A frame is published to a branch and linked from a pull request, which puts anything
-visible in it in front of everyone with repository access and leaves it in the history afterwards.
+A frame is captured from `localhost` and nowhere else, and is published to a branch and linked from
+a pull request, which puts anything visible in it in front of everyone with repository access and
+leaves it in the history afterwards. So:
 
-### A Slice whose Criteria carry no ids
+- `/frames` never navigates off `localhost`, and skips a screen whose page redirects elsewhere.
+- It signs in only to the local app, only with credentials from the variables `**Auth:**` names.
+- It looks at every frame before publishing it, and withholds one that shows a credential, a token,
+  a real card number or anything that looks like a real person's data.
+- It names, in its report, every host other than `localhost` the page called, so a reviewer can see
+  when a local app was talking to a shared service.
 
-Frames bind by id. A Slice whose checkboxes carry no ids has nothing for a manifest row to name, so
-`/finalize-pr` reports that the frames step was skipped and why, and does not block. Add the ids, or
-let `/acceptance-tests` write them back, and the step starts working.
+This rule was "fixtures only" while frames came from scenes a repository had to build. Requiring
+scenes is what kept frames out of most repositories, and the rule above is what replaced it: a
+frame now shows whatever the local seed data holds, and the reading-back is what stands between
+that and the branch.
+
+### The browser
+
+Frames are captured through the chrome-devtools MCP server. A session without it stops and says so.
+Install it once per machine, isolated and headless, so a background session never shares a signed-in
+profile and never opens a window:
+
+```bash
+claude mcp add chrome-devtools --scope user -- npx -y chrome-devtools-mcp@latest --isolated --headless
+```
+
+A repository can instead commit it in `.mcp.json`, which has to be on the default branch to reach a
+worktree.
 
 ## The four Criterion states in the `/finalize-pr` review comment
 
@@ -567,7 +627,7 @@ Shape in the comment:
 ### Criteria
 
 - verified    #60 C1 - `test/loyalty/earn.test.ts:14`, test gate green
-- manual      #60 C2 - check the cart summary renders "240 points" - [frame](https://github.com/o/r/blob/ui-evidence/pr-64/60-c2-cart-summary-balance.png?raw=true)
+- manual      #60 C2 - check the cart summary renders "240 points" - [frame](https://github.com/o/r/blob/ui-evidence/pr-64/60-c2-cart-summary-balance-after.png?raw=true)
 - weak        #60 C3 - `src/auth/client.ts:88`, no test carries the id
 - verified    #60 C4 - `uv run python scripts/dry_run.py --target sandbox migrations/ledger.sql` exited 0 on `3f9a2c1`, run by /finalize-pr
 ```
@@ -782,9 +842,10 @@ base = 20000 + (n mod 4000) * 10
 | Port | What it serves |
 | --- | --- |
 | `base` | The application's dev server |
-| `base + 1` | The preview server a frame is captured from |
+| `base + 1` | The head the after frames are captured from |
 | `base + 2` | The backend or API the application talks to |
-| `base + 3` … `base + 9` | Anything else the Slice starts: an emulator, a worker, a debugger |
+| `base + 3` | The base checkout the before frames are captured from |
+| `base + 4` … `base + 9` | Anything else the Slice starts: an emulator, a worker, a debugger |
 
 Slice `#62` owns `20620` through `20629`. Two issue numbers 4000 apart share a block, which is a
 collision between two Slices that would have to be in flight at the same time four thousand issues

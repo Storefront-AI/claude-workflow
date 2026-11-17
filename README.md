@@ -79,7 +79,7 @@ the repo is offered both plugins when they first trust the workspace:
       /start-issue      →  claim, branch, install deps; draft PR on the first commit
       /acceptance-tests →  one failing test per Criterion, at the Slice's Seam
       /tdd              →  red-green-refactor to the acceptance criteria               (Pocock)
-      /frames           →  capture what a [manual] criterion says a person would see
+      /frames           →  before and after screenshots of each screen the diff changes
       /finalize-pr      →  gates, Criteria, PR description; hands a passing PR to a review round
   └ per review round, a new background session in the same worktree:
       /review-round     →  fix what the last review blocked on, push, review again; at most three
@@ -168,13 +168,14 @@ that range is declared to belong to someone else. The bug this ends is not the c
 session usually survives. It is the reasoning that follows one: a session finds a port taken, cannot
 explain it, and goes looking, sometimes as far as killing the process holding it.
 
-**`manual` was the one Criterion state with no evidence.** `verified` cites a test, `weak` cites the
-code, `unverified` cites nothing and says so, and `manual` cited a sentence asking a reviewer to go
-and look, which meant building the branch before they could disagree with anything. `/frames`
-captures the screen a `[manual]` Criterion describes from fixtures the repo controls, names the file
-after the Criterion's id so the binding is mechanical rather than a judgement, and publishes it to a
-`ui-evidence` branch the default branch never merges. A Frame is evidence for a `manual` Criterion;
-it never promotes one, because a screen that rendered is not a behaviour that holds.
+**A reviewer should see a UI change without running it.** `manual` was the one Criterion state
+with no evidence, and any UI diff asked its reviewer to build the branch before they could disagree
+with anything. `/frames` serves the pull request's head and its merge base side by side, captures
+each screen the diff changes from both, and publishes the pair to a `ui-evidence` branch the default
+branch never merges. It needs no configuration: `scripts/serve.py` works out how to serve the app,
+and the screens come from the diff and the `[manual]` Criteria. A frame named after a Criterion's id
+binds to it mechanically rather than by judgement. A Frame is evidence for a `manual` Criterion; it
+never promotes one, because a screen that rendered is not a behaviour that holds.
 
 **A worktree pins its branch, and that shapes the merge skills.** Git allows one checkout per
 branch, so while a slice's worktree exists the main checkout cannot `git switch` to that branch or

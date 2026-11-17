@@ -8,6 +8,17 @@ from the version bumps in git history. Numbers in parentheses are pull requests.
 Each check after the code is written now runs in one place, and each review round runs in a
 session of its own.
 
+- **Frames work without configuration, before and after.** `/frames` no longer needs a
+  `docs/agents/frames.md` with a row per Criterion, which no repository had and no skill wrote. The
+  new `scripts/serve.py` works out how to serve the app (Next, Nuxt, Astro, Gatsby, Angular, CRA,
+  SvelteKit, React Router, Remix, Vite, Django, Rails or a static site), `/frames` serves the pull
+  request's head and its merge base on the Slice's ports, picks at most six screens from the diff and
+  the `[manual]` Criteria, and publishes each as a before and after pair. The PR body's `## Screens`
+  is now a Before and After table. `frames.md` remains as optional overrides (`**Serve:**`,
+  `**Auth:**`, `**Viewport:**`, pinned rows), and only a pinned row that produced no Frame blocks.
+  The safety rule moves from "fixtures only" to "localhost only, every Frame looked at", and a
+  public repository captures nothing until it adds `frames.md`. `/setup-workflow` reports whether
+  `/frames` can serve the repo and whether the chrome-devtools MCP is installed.
 - **Review rounds.** A Not blocking `/finalize-pr` no longer runs `/review-pr` in the session that
   built the Slice. It starts the new `/review-round` as a background session in the same worktree
   and ends. A round fixes what the latest `/review-pr` summary lists under `### Blocking findings`,
