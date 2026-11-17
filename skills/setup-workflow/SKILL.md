@@ -75,12 +75,32 @@ an agent that writes PR descriptions, one that reviews code, and one that writes
 has a domain-taught reviewer under some other name **has that role covered**, and this skill must
 not hand it a generic template.
 
-**Whether the repo has a test Seam.** A lockfile at the repo root from the table `/finalize-pr`
-detects toolchains by: `bun.lockb`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `uv.lock`.
-This decides the value the draft proposes for the workflow file's `**Specs:**` line, and only that.
-A repo with no test Seam cannot verify a Spec's Criteria, so a Spec anchored for it holds Criteria
-nothing can check; the draft proposes `off` there and `on` everywhere else. The user sees the
-proposal in §2 before anything is written, and the file is theirs to edit afterwards.
+**What toolchain the repo has.** A script reads it, not this prose:
+
+```bash
+python3 <this skill dir>/../../scripts/toolchain.py "$(git rev-parse --show-toplevel)"
+```
+
+([toolchain.py](../../scripts/toolchain.py).) It is read-only, and its first line is exactly one
+state:
+
+| First line | What the repo is |
+| --- | --- |
+| `bun`, `pnpm`, `npm`, `yarn` or `uv` | A recognised toolchain, from a lockfile at the root. One line per gate follows (`lint`, `typecheck`, `format check`, `test`): the command `/finalize-pr` runs for it, or `not declared`. |
+| `node, no lockfile` | A `package.json` at the root that nothing has installed from yet. |
+| `unrecognised: {files}` | Another toolchain's manifest at the root, such as `go.mod`, or a `pyproject.toml` with no `uv.lock`. |
+| `below root: {paths}` | No manifest at the root and tracked ones below it: a monorepo with its packages under a directory. |
+| `none` | No manifest anywhere in the tracked tree. |
+
+Record the whole output. The state decides the value the draft proposes for the workflow file's
+`**Specs:**` line, and only that: `on` for a recognised toolchain, `off` for every other state.
+`/finalize-pr` can run a test only for a toolchain it recognises, so anywhere else a Spec would hold
+Criteria nothing here can check. The user sees the proposal in §2 before anything is written, and
+the file is theirs to edit afterwards.
+
+Give the state as the reason, in the script's words. Only `none` is a repo with no toolchain. An
+`unrecognised` or `below root` repo is an established one this plugin cannot run the gates of, and
+telling its owner it has no tests is wrong.
 
 **Three third-party dependencies, checked and never installed**
 
@@ -109,7 +129,7 @@ Print one block per artifact, in the order of §3, each marked with what will ha
   write    .gitignore                 + .claude/worktrees/
   write    .worktreeinclude           + .env, + .env.local
   merge    .claude/settings.json      + 2 extraKnownMarketplaces, + 2 enabledPlugins
-  write    docs/agents/workflow.md    new (Specs: on, has a test Seam; critics and security reviewers: codex, google, claude)
+  write    docs/agents/workflow.md    new (Specs: on, toolchain: bun; critics and security reviewers: codex, google, claude)
   copy     .claude/agents/            + pr-writer.md, + test-writer.md
   skip     .claude/agents/            code-reviewer: ucp-demo-code-reviewer.md covers the role
   append   CLAUDE.md                  + ## Slice workflow
@@ -256,7 +276,7 @@ machine. `/review-pr` walks the Security reviewers list the same way for its sec
 `/dispatch-slices`, `/acceptance-tests` and `/finalize-pr` read the Specs line. Changing any of them
 is an edit to this file and not a release of this plugin, so say so in §4.
 
-**The Specs value is the one §1 chose**: `on` when the repo has a test Seam, `off` when it has none.
+**The Specs value is the one §1 chose**: `on` for a recognised toolchain, `off` for every other state.
 Absent means `on`, so the line is written even when it says `on`: it is where the next reader learns
 the setting exists. `off` turns every Spec gate off for the repo and makes every Slice a lone
 Slice; it does not skip the tests, because `/finalize-pr` holds a lone Slice to its own Criteria.
@@ -372,7 +392,7 @@ Repo:      {owner}/{repo} on {default branch}
   {written | unchanged}  .gitignore              .claude/worktrees/
   {written | unchanged | not needed}  .worktreeinclude    {paths, or "no gitignored .env files"}
   {merged | unchanged}   .claude/settings.json   marketplace + 2 plugins
-  {written | updated | unchanged}  docs/agents/workflow.md Specs: {on | off} ({has | no} test Seam); critics and security reviewers: codex → google → claude
+  {written | updated | unchanged}  docs/agents/workflow.md Specs: {on | off} (toolchain: {the state §1 read}); critics and security reviewers: codex → google → claude
   {copied | unchanged}   .claude/agents/         {files, or which existing agent covers each role}
   {appended | updated | unchanged | stale, edited by hand} {CLAUDE.md}   ## Slice workflow
 

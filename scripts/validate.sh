@@ -26,6 +26,7 @@ if ! python3 scripts/test-clean-predicate.py; then fail=1; fi
 if ! python3 scripts/test-merge-gate.py; then fail=1; fi
 if ! python3 scripts/test-review-pr.py; then fail=1; fi
 if ! python3 scripts/test-workflow-file.py; then fail=1; fi
+if ! python3 scripts/test-toolchain.py; then fail=1; fi
 if ! python3 scripts/test-security-reviewers.py; then fail=1; fi
 if ! python3 scripts/test-spec-slices.py; then fail=1; fi
 if ! python3 scripts/test-spec.py; then fail=1; fi

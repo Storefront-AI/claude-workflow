@@ -114,6 +114,7 @@ steps 1, 2, and 8. Useful for local work on `main`.
    | Lockfile | Install |
    | --- | --- |
    | `bun.lockb` | `bun install` |
+   | `bun.lock` | `bun install` |
    | `pnpm-lock.yaml` | `pnpm install` |
    | `package-lock.json` | `npm ci` |
    | `yarn.lock` | `yarn install` |
