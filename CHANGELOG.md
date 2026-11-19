@@ -36,6 +36,11 @@ session of its own.
   snapshot no longer credits an older request to the ruleset. Each run that posts deletes this PR's
   run directories older than the newest three, leaving any run with no summary yet until it is a
   day old, since its reviewers may still be working in it (#75).
+- `/dispatch-slices` counts every session in each `issue-{n}` worktree from `claude agents --json`
+  once the last dispatch returns, not just the ids the launches printed. Each must hold exactly one
+  session, with the printed id. A worktree with none is reported as a failed dispatch, and one with
+  more, or with a session it did not launch, is reported with every id and left running for the
+  person to choose.
 
 - `scripts/toolchain.py {repo root}` reports what a repo has: a recognised toolchain (`bun`, `pnpm`,
   `npm`, `yarn`, `uv`) with the command for each gate its manifest declares, or one of
