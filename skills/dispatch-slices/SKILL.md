@@ -417,7 +417,7 @@ already published so the person it is waiting for can start from those:
 
 ```bash
 claude --bg --worktree issue-{n} --dangerously-skip-permissions \
-  "/start-issue {n} — refer to the Spec in issue #{spec} for context. Then run /acceptance-tests, then /tdd. When the work is complete, push the branch, run /frames, and STOP: tell me it needs a manual check, name the Frames you published, and wait. Do not run /finalize-pr yourself. {parallelism}"
+  "/start-issue {n} — refer to the Spec in issue #{spec} for context. Then run /acceptance-tests, then /tdd. When the work is complete, push the branch, run /frames, and STOP: tell me it needs a manual check, show me the Screens table /frames returned, and wait. Do not run /finalize-pr yourself. {parallelism}"
 ```
 
 ### `{parallelism}`, in every prompt

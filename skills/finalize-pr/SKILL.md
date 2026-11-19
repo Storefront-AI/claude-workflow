@@ -1,6 +1,6 @@
 ---
 name: finalize-pr
-description: Drive a Slice PR to ready-for-human-review from its worktree. Reads the linked Slice and its Spec from whichever repository the closing reference names, pushes, reads the quality gates from CI (running them locally only where no CI does), runs the command each [command] Criterion names, captures the Frames the repository declares for its [manual] Criteria, reports every Criterion as verified, weak, manual or unverified, dispatches the PR-writer agent, ticks verified Criteria on the issue, posts the review via `gh pr review --comment`, and hands a Not blocking PR to /review-round in a new background session, whose /review-pr reviews the code and is the only skill that marks it ready. Use when the user says "/finalize-pr", "submit PR", "ready for review", or finishes a TDD cycle on a Slice.
+description: Drive a Slice PR to ready-for-human-review from its worktree. Reads the linked Slice and its Spec from whichever repository the closing reference names, pushes, reads the quality gates from CI (running them locally only where no CI does), runs the command each [command] Criterion names, captures before and after Frames of the screens the diff changes, reports every Criterion as verified, weak, manual or unverified, dispatches the PR-writer agent, ticks verified Criteria on the issue, posts the review via `gh pr review --comment`, and hands a Not blocking PR to /review-round in a new background session, whose /review-pr reviews the code and is the only skill that marks it ready. Use when the user says "/finalize-pr", "submit PR", "ready for review", or finishes a TDD cycle on a Slice.
 ---
 
 # Finalize PR
@@ -312,20 +312,19 @@ A `[command]` Criterion with no command (§2) → **not run**: `no command named
 
 ## 7. Capture the Frames
 
-Run `/frames {pr_number}`. It reads `docs/agents/frames.md`, serves the built application on this
-Slice's own preview port, captures one Frame per declared `[manual]` Criterion and publishes each to
-the `ui-evidence` branch of this repository. `CONTRACTS.md` has the Frame, its name and where it
-lands; the skill has the procedure, and this step does not restate either.
+Run `/frames {pr_number}`. It serves this Slice's head and its merge base on the Slice's own ports,
+captures each screen the diff changes from both, binds a screen to a `[manual]` Criterion where one
+names it, and publishes the Frames to the `ui-evidence` branch of this repository. It needs no
+configuration; `docs/agents/frames.md` only overrides. `CONTRACTS.md` has the Frame, its name, where
+it lands and what blocks; the skill has the procedure, and this step does not restate either.
 
 Before §8, because the PR body carries the Frames and a body written first would not have them.
 
-Keep what it returns, per Criterion: `captured` with a filename and a URL, `MISSING` with the reason
-it failed, or `no frame` where the manifest declares none. Three outcomes are not failures of this
-step and are reported in §14 rather than stopping it:
-
-- The repository declares no Frames.
-- The Slice owns no `[manual]` Criterion.
-- The Slice's Criteria carry no ids, so nothing can bind to a manifest row.
+Keep what it returns: per screen, its before and after URLs or why one is absent; per `[manual]`
+Criterion, the screen it binds to, `MISSING` with the reason a declared Frame failed, or `no frame`;
+and its `## Screens` block. When it stops before capturing anything (no UI change, a public
+repository with no `frames.md`, no way to serve the app), keep the one line it gives as the reason,
+for §14. None of those is a failure of this step.
 
 A `MISSING` Frame blocks in §10. Nothing else here does.
 
@@ -337,8 +336,8 @@ read the frontmatter `name`/`description` of each file and pick the one that wri
 descriptions. Use the Agent tool with `subagent_type` set to that frontmatter `name` and
 `prompt: "Write the PR description for PR #{pr_number}."` Wait for completion.
 
-With Frames from §7, the prompt carries them and asks for a `## Screens` section holding one
-markdown image per captured Frame: the Criterion's id as the alt text, and the URL §7 returned. A reviewer who can see the change without building it
+With Frames from §7, the prompt carries §7's `## Screens` block and asks for it in the body as
+written: one row per screen, a Before and an After column. A reviewer who can see the change without building it
 decides faster than one who reads a description of it, and the images belong in the body rather than
 only in the review comment because the body is what survives on the merged pull request.
 
@@ -397,7 +396,7 @@ for `[command]`, the command, the head it ran on, and who ran it (this skill, or
 and URL); a `[command]` `unverified` names the command and its exit code and failing lines, or why it
 was not run;
 `weak` names the `path:line` that appears to implement it; `unverified` names nothing, which is the
-point of the state; `manual` names its Frame from §7, as a filename and a link, and where §7
+point of the state; `manual` names its after Frame from §7, as a filename and a link, and where §7
 returned none it names the check the human runs, as it always did.
 
 A Frame does not move a Criterion out of `manual`. It shows that something rendered, which is not
@@ -523,7 +522,7 @@ Body structure:
 ### Criteria
 
 - verified    #60 C1 - `test/loyalty/earn.test.ts:14`, test gate green
-- manual      #60 C2 - check the cart summary renders "240 points" - [frame](https://github.com/o/r/blob/ui-evidence/pr-64/60-c2-cart-summary-balance.png?raw=true)
+- manual      #60 C2 - check the cart summary renders "240 points" - [frame](https://github.com/o/r/blob/ui-evidence/pr-64/60-c2-cart-summary-balance-after.png?raw=true)
 - weak        #60 C3 - `src/auth/client.ts:88`, no test carries the id
 - unverified  #60 C4 - no test and no code found
 - verified    #60 C6 - `uv run python scripts/dry_run.py --target sandbox migrations/ledger.sql` exited 0 on `3f9a2c1`, run by /finalize-pr
@@ -536,11 +535,11 @@ Command: line on the tracker and re-run. This run held it to the untagged rule.
 ⓘ Tag: #60 C4 is [command] in the Spec and [manual] on #62. The Spec wins; fix #62.
 
 {when §7 reported a Frame MISSING, once per Criterion:}
-✘ #60 C5 - a Frame is declared at `docs/agents/frames.md:9` and none was captured: {reason}. Blocking.
+✘ #60 C5 - a Frame is declared at `docs/agents/frames.md:9` and no usable after was captured: {reason}. Blocking.
 
-{when §7 did not run, exactly one line saying which of its three reasons applied:}
-ⓘ Frames: {not declared in this repository | no [manual] Criterion on this Slice | the Slice's
-Criteria carry no ids}.
+{when §7 captured nothing, exactly one line carrying the reason it gave:}
+ⓘ Frames: {no UI change | public repository; add docs/agents/frames.md to opt in | the serve.py
+state it stopped on, in the script's words}.
 
 {when the Slice carries more than ten Criteria:}
 ⚠ {N} Criteria on one Slice. Above ten, a Slice is usually doing too much. Not blocking.

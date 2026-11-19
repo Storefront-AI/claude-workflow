@@ -51,8 +51,8 @@ diff satisfies it.}
 
 ## Screens
 
-{Only where `/finalize-pr` handed you Frames. One markdown image per Frame, alt text the Criterion's
-id, URL as given. No commentary: the images are the point, and a caption describing what the
+{Only where `/finalize-pr` handed you a Screens table from /frames. Paste it as given: one row per
+screen, a Before and an After column. No commentary: the images are the point, and a caption describing what the
 reviewer is looking at is a caption they have to disagree with before they can trust their own eyes.
 Omit the whole section when there are none.}
 
